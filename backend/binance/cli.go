@@ -4,11 +4,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"strconv"
+
+	"github.com/binanceBot/backend/binance/models"
 )
 
 type Binance struct {
@@ -24,6 +26,8 @@ const (
 	pingPath         = "api/v3/ping"
 	exchangeInfoPath = "api/v3/exchangeInfo"
 	myTradesPath     = "api/v3/myTrades"
+	accountPath      = "api/v3/account"
+	allOrdersPath    = "api/v3/allOrders"
 )
 
 func (b Binance) Ping() {
@@ -50,35 +54,100 @@ limit		INT		NO			Default 500; max 1000.
 recvWindow	LONG	NO			The value cannot be greater than 60000
 timestamp	LONG	YES
 */
-func (b Binance) MyTrades(req MyTradesRequest) error {
+
+// MyTrades returns list of completed trades
+func (b Binance) MyTrades(req models.MyTradesRequest) (*models.MyTradesResponse, error) {
 	if err := req.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 
 	u := fmt.Sprintf("%s/%s", b.base, myTradesPath)
 	parsedURL, err := url.Parse(u)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	q := parsedURL.Query()
-	q.Set("symbol", req.Symbol)
-	q.Set("timestmap", strconv.Itoa(int(req.Timestamp.Unix())))
+	r, _ := http.NewRequest(http.MethodGet, b.createURL(req, parsedURL), nil)
+	r.Header.Set(apiKeyHeader, b.apiKey)
+
+	var trades models.MyTradesResponse
+
+	resp, err := b.h.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&trades.Trades); err != nil {
+		return nil, err
+	}
+
+	return &trades, nil
+}
+
+func (b Binance) Account(req models.AccountRequest) (*models.AccountResponse, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	u := fmt.Sprintf("%s/%s", b.base, accountPath)
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return nil, err
+	}
+
+	r, _ := http.NewRequest(http.MethodGet, b.createURL(req, parsedURL), nil)
+	r.Header.Set(apiKeyHeader, b.apiKey)
+
+	var trades models.AccountResponse
+
+	resp, err := b.h.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&trades); err != nil {
+		return nil, err
+	}
+
+	return &trades, nil
+}
+
+func (b Binance) AllOrderList(req models.AllOrdersRequest) (*models.AllOrdersResponse, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	u := fmt.Sprintf("%s/%s", b.base, allOrdersPath)
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return nil, err
+	}
+
+	r, _ := http.NewRequest(http.MethodGet, b.createURL(req, parsedURL), nil)
+	r.Header.Set(apiKeyHeader, b.apiKey)
+
+	var orders models.AllOrdersResponse
+
+	resp, err := b.h.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	bo, _ := ioutil.ReadAll(resp.Body)
+	fmt.Println(string(bo))
+	if err := json.NewDecoder(resp.Body).Decode(&orders.Orders); err != nil {
+		return nil, err
+	}
+
+	return &orders, nil
+}
+
+func (b Binance) createURL(req models.RequestInterface, parsedURL *url.URL) string {
+	q := &url.Values{}
+	req.EmbedData(q)
 
 	h := hmac.New(sha256.New, b.secretKey)
 	h.Write([]byte(q.Encode()))
 	sha := hex.EncodeToString(h.Sum(nil))
-	q.Set("signature", sha)
 
-	parsedURL.RawQuery = q.Encode()
+	parsedURL.RawQuery = q.Encode() + "&signature=" + sha
 
-	fmt.Println(parsedURL.String())
-	r, _ := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
-	r.Header.Set(apiKeyHeader, b.apiKey)
-
-	resp, _ := b.h.Do(r)
-	body, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(body))
-
-	return nil
+	return parsedURL.String()
 }

@@ -1,4 +1,4 @@
-package binance
+package berror
 
 import "errors"
 

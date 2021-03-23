@@ -1,10 +1,13 @@
 package binance
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/binanceBot/backend/binance/models"
 )
 
 var (
@@ -43,8 +46,36 @@ func TestBinance_MyTrades(t *testing.T) {
 		apiKey:    apiKey,
 		secretKey: []byte(secretKey),
 	}
-	b.MyTrades(MyTradesRequest{
-		Symbol:    "BUSDBTC",
-		Timestamp: time.Now(),
+	fmt.Println(b.MyTrades(models.MyTradesRequest{
+		Symbol:    "BTCUSDC",
+		Timestamp: time.Now().Add(-time.Second),
+	}))
+}
+
+func TestBinance_Account(t *testing.T) {
+	b := Binance{
+		h:         http.DefaultClient,
+		base:      "https://api.binance.com",
+		apiKey:    apiKey,
+		secretKey: []byte(secretKey),
+	}
+	r, err := b.Account(models.AccountRequest{
+		Timestamp: time.Now().Add(-time.Second),
 	})
+	fmt.Printf("%+v\n", r)
+	fmt.Println(err)
+}
+
+func TestBinance_AllOrderList(t *testing.T) {
+	b := Binance{
+		h:         http.DefaultClient,
+		base:      "https://api.binance.com",
+		apiKey:    apiKey,
+		secretKey: []byte(secretKey),
+	}
+	r, err := b.AllOrderList(models.AllOrdersRequest{
+		Timestamp: time.Now().Add(-time.Second),
+	})
+	fmt.Printf("%+v\n", r)
+	fmt.Println(err)
 }

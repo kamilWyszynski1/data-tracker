@@ -1,3 +1,5 @@
-secrets.env
+*/secrets.env
 .vscode/*
 .idea
+token.json
+credentials.json

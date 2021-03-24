@@ -9,15 +9,17 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-
-	"github.com/binanceBot/backend/binance/models"
 )
 
-type Binance struct {
+type Client struct {
 	h         *http.Client
 	base      string
 	apiKey    string
 	secretKey []byte
+}
+
+func NewBinance(h *http.Client, base string, apiKey string, secretKey []byte) *Client {
+	return &Client{h: h, base: base, apiKey: apiKey, secretKey: secretKey}
 }
 
 const (
@@ -30,20 +32,20 @@ const (
 	allOrdersPath    = "api/v3/allOrders"
 )
 
-func (b Binance) Ping() {
-	url := fmt.Sprintf("%s/%s", b.base, pingPath)
-	fmt.Println(b.h.Get(url))
+func (c Client) Ping() {
+	url := fmt.Sprintf("%s/%s", c.base, pingPath)
+	fmt.Println(c.h.Get(url))
 }
 
-func (b Binance) ExchangeInfo() {
-	url := fmt.Sprintf("%s/%s", b.base, exchangeInfoPath)
-	r, _ := b.h.Get(url)
+func (c Client) ExchangeInfo() {
+	url := fmt.Sprintf("%s/%s", c.base, exchangeInfoPath)
+	r, _ := c.h.Get(url)
 	body, _ := ioutil.ReadAll(r.Body)
 	fmt.Println(string(body))
 }
 
 /*
-https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#account-trade-list-user_data
+https://githuc.com/binance/binance-spot-api-docs/blob/master/rest-api.md#account-trade-list-user_data
 NAME		TYPE 	MANDATORY 	DESCRIPION
 ===========================================
 symbol		STRING	YES
@@ -56,23 +58,23 @@ timestamp	LONG	YES
 */
 
 // MyTrades returns list of completed trades
-func (b Binance) MyTrades(req models.MyTradesRequest) (*models.MyTradesResponse, error) {
+func (c Client) MyTrades(req MyTradesRequest) (*MyTradesResponse, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/%s", b.base, myTradesPath)
+	u := fmt.Sprintf("%s/%s", c.base, myTradesPath)
 	parsedURL, err := url.Parse(u)
 	if err != nil {
 		return nil, err
 	}
 
-	r, _ := http.NewRequest(http.MethodGet, b.createURL(req, parsedURL), nil)
-	r.Header.Set(apiKeyHeader, b.apiKey)
+	r, _ := http.NewRequest(http.MethodGet, c.createURL(req, parsedURL), nil)
+	r.Header.Set(apiKeyHeader, c.apiKey)
 
-	var trades models.MyTradesResponse
+	var trades MyTradesResponse
 
-	resp, err := b.h.Do(r)
+	resp, err := c.h.Do(r)
 	if err != nil {
 		return nil, err
 	}
@@ -83,23 +85,23 @@ func (b Binance) MyTrades(req models.MyTradesRequest) (*models.MyTradesResponse,
 	return &trades, nil
 }
 
-func (b Binance) Account(req models.AccountRequest) (*models.AccountResponse, error) {
+func (c Client) Account(req AccountRequest) (*AccountResponse, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/%s", b.base, accountPath)
+	u := fmt.Sprintf("%s/%s", c.base, accountPath)
 	parsedURL, err := url.Parse(u)
 	if err != nil {
 		return nil, err
 	}
 
-	r, _ := http.NewRequest(http.MethodGet, b.createURL(req, parsedURL), nil)
-	r.Header.Set(apiKeyHeader, b.apiKey)
+	r, _ := http.NewRequest(http.MethodGet, c.createURL(req, parsedURL), nil)
+	r.Header.Set(apiKeyHeader, c.apiKey)
 
-	var trades models.AccountResponse
+	var trades AccountResponse
 
-	resp, err := b.h.Do(r)
+	resp, err := c.h.Do(r)
 	if err != nil {
 		return nil, err
 	}
@@ -110,23 +112,23 @@ func (b Binance) Account(req models.AccountRequest) (*models.AccountResponse, er
 	return &trades, nil
 }
 
-func (b Binance) AllOrderList(req models.AllOrdersRequest) (*models.AllOrdersResponse, error) {
+func (c Client) AllOrderList(req AllOrdersRequest) (*AllOrdersResponse, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/%s", b.base, allOrdersPath)
+	u := fmt.Sprintf("%s/%s", c.base, allOrdersPath)
 	parsedURL, err := url.Parse(u)
 	if err != nil {
 		return nil, err
 	}
 
-	r, _ := http.NewRequest(http.MethodGet, b.createURL(req, parsedURL), nil)
-	r.Header.Set(apiKeyHeader, b.apiKey)
+	r, _ := http.NewRequest(http.MethodGet, c.createURL(req, parsedURL), nil)
+	r.Header.Set(apiKeyHeader, c.apiKey)
 
-	var orders models.AllOrdersResponse
+	var orders AllOrdersResponse
 
-	resp, err := b.h.Do(r)
+	resp, err := c.h.Do(r)
 	if err != nil {
 		return nil, err
 	}
@@ -139,11 +141,11 @@ func (b Binance) AllOrderList(req models.AllOrdersRequest) (*models.AllOrdersRes
 	return &orders, nil
 }
 
-func (b Binance) createURL(req models.RequestInterface, parsedURL *url.URL) string {
+func (c Client) createURL(req RequestInterface, parsedURL *url.URL) string {
 	q := &url.Values{}
 	req.EmbedData(q)
 
-	h := hmac.New(sha256.New, b.secretKey)
+	h := hmac.New(sha256.New, c.secretKey)
 	h.Write([]byte(q.Encode()))
 	sha := hex.EncodeToString(h.Sum(nil))
 

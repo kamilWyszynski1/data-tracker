@@ -7,6 +7,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
+	"time"
+
+	"github.com/binanceBot/backend/binance"
+	"github.com/binanceBot/backend/sheets/api"
 
 	"google.golang.org/api/option"
 
@@ -71,14 +76,18 @@ func saveToken(path string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
+type pair struct {
+	x, y int64
+}
+
 func main() {
-	b, err := ioutil.ReadFile("../credentials.json")
+	b, err := ioutil.ReadFile(os.Getenv("CREDENTIALS_FILE"))
 	if err != nil {
 		log.Fatalf("Unable to read client secret file: %v", err)
 	}
 
 	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets.readonly")
+	config, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets")
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
@@ -92,18 +101,81 @@ func main() {
 	// Prints the names and majors of students in a sample spreadsheet:
 	// https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
 	spreadsheetId := "1T62QvQrrgNnKNB0JdC24qHm6bYGMgbY4usY8FLFEcec"
-	readRange := "A:A"
+	readRange := "A2:A"
 	resp, err := srv.Spreadsheets.Values.Get(spreadsheetId, readRange).Do()
 	if err != nil {
 		log.Fatalf("Unable to retrieve data from sheet: %v", err)
 	}
 
+	bCli := binance.NewBinance(http.DefaultClient, "https://api.binance.com", "QbLjiZkYn6mReDrK8wI64uKh2GF42F2ezmigik7prdH212Yi5I5f3wRCTbVWWktm", []byte("5BiEPBLveIXIrNqLX9hqV0QAvYZYNK3TVALk6ZBEdrpBsBGYVl2zeQhDEDZa4jUB"))
+	var sells []pair
+
 	if len(resp.Values) == 0 {
 		fmt.Println("No data found.")
 	} else {
-		for _, row := range resp.Values {
-			// Print columns A and E, which correspond to indices 0 and 4.
-			fmt.Printf("%s\n", row[0])
+		for i, row := range resp.Values {
+			if len(row) == 0 {
+				continue
+			}
+			mtr, err := bCli.MyTrades(binance.MyTradesRequest{
+				Symbol:    row[0].(string),
+				Timestamp: time.Now().Add(-time.Second),
+			})
+			if err != nil {
+				panic(fmt.Errorf("failed to get MyTrades, %w", err))
+			}
+
+			sort.Slice(mtr.Trades, func(i, j int) bool {
+				return mtr.Trades[i].Time <= mtr.Trades[j].Time
+			})
+
+			prices := make([]interface{}, 0, len(mtr.Trades))
+			for j, trade := range mtr.Trades {
+				if !trade.Isbuyer {
+					sells = append(sells, pair{int64(i), int64(j)})
+				}
+				prices = append(prices, trade.Price)
+			}
+
+			vr := &sheets.ValueRange{}
+			vr.Values = append(vr.Values, prices)
+			fmt.Println("values: ", prices)
+			range_ := fmt.Sprintf("B%d:%s%d", 2+i, string(rune('B'+len(prices)-1)), 2+i)
+			fmt.Printf("inserting %s to range: %s\n", row[0], range_)
+			_, err = srv.Spreadsheets.Values.Update(spreadsheetId, range_, vr).ValueInputOption("USER_ENTERED").Do()
+			if err != nil {
+				panic(err)
+			}
 		}
+		reqs := make([]*sheets.Request, 0, len(sells))
+		for _, p := range sells {
+
+			reqs = append(reqs, &sheets.Request{
+				RepeatCell: &sheets.RepeatCellRequest{
+					Cell: &sheets.CellData{
+						UserEnteredFormat: &sheets.CellFormat{
+							BackgroundColor: api.ColorLightRed2,
+						},
+					},
+					Fields: "userEnteredFormat(backgroundColor)",
+					Range: &sheets.GridRange{
+						EndColumnIndex:   p.y + 2,
+						EndRowIndex:      p.x + 2,
+						StartColumnIndex: p.y + 1,
+						StartRowIndex:    p.x + 1,
+						SheetId:          0,
+					},
+				},
+			})
+		}
+
+		batchResp, err := srv.Spreadsheets.BatchUpdate(spreadsheetId, &sheets.BatchUpdateSpreadsheetRequest{
+			Requests: reqs,
+		}).Do()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(batchResp)
+
 	}
 }

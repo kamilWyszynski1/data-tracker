@@ -6,8 +6,6 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"github.com/binanceBot/backend/binance/models"
 )
 
 var (
@@ -25,7 +23,7 @@ func init() {
 }
 
 func TestBinance_Ping(t *testing.T) {
-	b := Binance{
+	b := Client{
 		h:    http.DefaultClient,
 		base: "https://api.binance.com",
 	}
@@ -33,33 +31,33 @@ func TestBinance_Ping(t *testing.T) {
 }
 
 // func TestBinance_ExchangeInfo(t *testing.T) {
-// 	b := Binance{
+// 	b := Client{
 // 		h:    http.DefaultClient,
 // 		base: "https://api.binance.com",
 // 	}
 // 	b.ExchangeInfo()
 // }
 func TestBinance_MyTrades(t *testing.T) {
-	b := Binance{
+	b := Client{
 		h:         http.DefaultClient,
 		base:      "https://api.binance.com",
 		apiKey:    apiKey,
 		secretKey: []byte(secretKey),
 	}
-	fmt.Println(b.MyTrades(models.MyTradesRequest{
+	fmt.Println(b.MyTrades(MyTradesRequest{
 		Symbol:    "BTCUSDC",
 		Timestamp: time.Now().Add(-time.Second),
 	}))
 }
 
 func TestBinance_Account(t *testing.T) {
-	b := Binance{
+	b := Client{
 		h:         http.DefaultClient,
 		base:      "https://api.binance.com",
 		apiKey:    apiKey,
 		secretKey: []byte(secretKey),
 	}
-	r, err := b.Account(models.AccountRequest{
+	r, err := b.Account(AccountRequest{
 		Timestamp: time.Now().Add(-time.Second),
 	})
 	fmt.Printf("%+v\n", r)
@@ -67,13 +65,13 @@ func TestBinance_Account(t *testing.T) {
 }
 
 func TestBinance_AllOrderList(t *testing.T) {
-	b := Binance{
+	b := Client{
 		h:         http.DefaultClient,
 		base:      "https://api.binance.com",
 		apiKey:    apiKey,
 		secretKey: []byte(secretKey),
 	}
-	r, err := b.AllOrderList(models.AllOrdersRequest{
+	r, err := b.AllOrderList(AllOrdersRequest{
 		Timestamp: time.Now().Add(-time.Second),
 	})
 	fmt.Printf("%+v\n", r)

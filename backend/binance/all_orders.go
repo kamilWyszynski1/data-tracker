@@ -1,4 +1,4 @@
-package models
+package binance
 
 import (
 	"net/url"

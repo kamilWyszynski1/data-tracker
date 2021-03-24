@@ -1,11 +1,9 @@
-package models
+package binance
 
 import (
 	"net/url"
 	"strconv"
 	"time"
-
-	"github.com/binanceBot/backend/binance/berror"
 )
 
 type MyTradesRequest struct {
@@ -20,13 +18,13 @@ type MyTradesRequest struct {
 
 func (m MyTradesRequest) Validate() error {
 	if m.Symbol == "" {
-		return berror.BinanceCliErr{
-			Err: berror.ErrInvalidData,
+		return BinanceCliErr{
+			Err: ErrInvalidData,
 			Msg: "symbol field is mandatory",
 		}
 	} else if m.Timestamp.IsZero() {
-		return berror.BinanceCliErr{
-			Err: berror.ErrInvalidData,
+		return BinanceCliErr{
+			Err: ErrInvalidData,
 			Msg: "timestamp field is mandatory",
 		}
 	}
@@ -39,10 +37,10 @@ func (m MyTradesRequest) EmbedData(q *url.Values) {
 }
 
 type MyTradesResponse struct {
-	Trades []Trades
+	Trades []Trade
 }
 
-type Trades struct {
+type Trade struct {
 	Symbol          string `json:"symbol"`
 	ID              int    `json:"id"`
 	Orderid         int    `json:"orderId"`

@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 type Client struct {
@@ -25,11 +26,12 @@ func NewBinance(h *http.Client, base string, apiKey string, secretKey []byte) *C
 const (
 	apiKeyHeader = "X-MBX-APIKEY"
 
-	pingPath         = "api/v3/ping"
-	exchangeInfoPath = "api/v3/exchangeInfo"
-	myTradesPath     = "api/v3/myTrades"
-	accountPath      = "api/v3/account"
-	allOrdersPath    = "api/v3/allOrders"
+	pingPath                = "api/v3/ping"
+	exchangeInfoPath        = "api/v3/exchangeInfo"
+	myTradesPath            = "api/v3/myTrades"
+	accountPath             = "api/v3/account"
+	allOrdersPath           = "api/v3/allOrders"
+	currentAveragePricePath = "api/v3/avgPrice"
 )
 
 func (c Client) Ping() {
@@ -132,13 +134,81 @@ func (c Client) AllOrderList(req AllOrdersRequest) (*AllOrdersResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	bo, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(bo))
 	if err := json.NewDecoder(resp.Body).Decode(&orders.Orders); err != nil {
 		return nil, err
 	}
 
 	return &orders, nil
+}
+
+// TODO fix creating url + reading error
+
+func (c Client) CurrentAveragePrice(symbol string) (float64, error) {
+	u := fmt.Sprintf("%s/%s", c.base, currentAveragePricePath)
+
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return 0, err
+	}
+	r, _ := http.NewRequest(http.MethodGet, parsedURL.String()+fmt.Sprintf("?symbol=%s", symbol), nil)
+	r.Header.Set(apiKeyHeader, c.apiKey)
+
+	resp, err := c.h.Do(r)
+	if err != nil {
+		return 0, err
+	}
+	var capResp CurrentAveragePriceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&capResp); err != nil {
+		return 0, err
+	}
+	//if resp.StatusCode != http.StatusOK {
+	//	return 0, parseError(resp.Body)
+	//}
+
+	fl, err := strconv.ParseFloat(capResp.Price, 64)
+	if err != nil {
+		return 0, err
+	}
+	return fl, nil
+}
+
+func (c Client) SymbolTickerPrice(symbol string) (float64, error) {
+	u := fmt.Sprintf("%s/%s", c.base, currentAveragePricePath)
+
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return 0, err
+	}
+	r, _ := http.NewRequest(http.MethodGet, parsedURL.String()+fmt.Sprintf("?symbol=%s", symbol), nil)
+	r.Header.Set(apiKeyHeader, c.apiKey)
+
+	resp, err := c.h.Do(r)
+	if err != nil {
+		return 0, err
+	}
+	var capResp CurrentAveragePriceResponse
+	b, _ := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	if err := json.Unmarshal(b, &capResp); err != nil {
+		return 0, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, parseError(b)
+	}
+
+	fl, err := strconv.ParseFloat(capResp.Price, 64)
+	if err != nil {
+		return 0, err
+	}
+	return fl, nil
+}
+
+func parseError(b []byte) error {
+	var bErr BinanceError
+	if err := json.Unmarshal(b, &bErr); err != nil {
+		return err
+	}
+	return bErr
 }
 
 func (c Client) createURL(req RequestInterface, parsedURL *url.URL) string {

@@ -59,3 +59,7 @@ type Trade struct {
 func (t Trade) GetTime() time.Time {
 	return time.Unix(t.Time/1000, 0)
 }
+
+func (t Trade) GetTimeFormat(f string) string {
+	return t.GetTime().Format(f)
+}

@@ -77,3 +77,27 @@ func TestBinance_AllOrderList(t *testing.T) {
 	fmt.Printf("%+v\n", r)
 	fmt.Println(err)
 }
+
+func TestClient_CurrentAveragePrice(t *testing.T) {
+	b := Client{
+		h:         http.DefaultClient,
+		base:      "https://api.binance.com",
+		apiKey:    apiKey,
+		secretKey: []byte(secretKey),
+	}
+	r, err := b.CurrentAveragePrice("BTCBUSD")
+	fmt.Printf("%+v\n", r)
+	fmt.Println(err)
+}
+
+func TestClient_SymbolTickerPrice(t *testing.T) {
+	b := Client{
+		h:         http.DefaultClient,
+		base:      "https://api.binance.com",
+		apiKey:    apiKey,
+		secretKey: []byte(secretKey),
+	}
+	r, err := b.SymbolTickerPrice("BTCBUSD")
+	fmt.Printf("%+v\n", r)
+	fmt.Println(err)
+}

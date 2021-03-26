@@ -55,3 +55,7 @@ type Trade struct {
 	Ismaker         bool   `json:"isMaker"`
 	Isbestmatch     bool   `json:"isBestMatch"`
 }
+
+func (t Trade) GetTime() time.Time {
+	return time.Unix(t.Time/1000, 0)
+}

@@ -1,0 +1,1 @@
+go build -ldflags "-X main.MONGO_USER atlasAdmin" -o $PWD/ cmd/main.go

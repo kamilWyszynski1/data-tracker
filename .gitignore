@@ -3,3 +3,7 @@
 .idea
 token.json
 credentials.json
+.terraform.lock.hcl
+**/.terraform
+terraform*
+**.zip

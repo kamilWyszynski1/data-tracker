@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	log.Println("start")
 	lambda.Start(LambdaHandler)
 }
 
@@ -29,17 +30,27 @@ func LambdaHandler() {
 	binanceApiKey := envOrFatal("BINANCE_API_KEY")
 	binanceSecretKey := envOrFatal("BINANCE_SECRET_KEY")
 
+	log.Printf(
+		"config: {user: %s, passwd: %s, db: %s, coll: %s, key :%s, secret: %s}",
+		mongoUser, mongoPasswd, mongoDatabase, mongoColl, binanceApiKey, binanceSecretKey,
+	)
+
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(
 		fmt.Sprintf(
 			`mongodb+srv://%s:%s@mongo-learning-cluster.skkzi.mongodb.net/%s?retryWrites=true&w=majority`,
 			mongoUser, mongoPasswd, mongoDatabase,
 		),
 	))
+
+	log.Println("mongoDB connected")
+
 	if err != nil {
 		log.Fatal(err)
 	}
 	coll := client.Database(mongoDatabase).Collection(mongoColl)
 	bCli := binance.NewBinance(http.DefaultClient, "https://api.binance.com", binanceApiKey, []byte(binanceSecretKey))
+
+	log.Println("start inserting")
 
 	a, err := bCli.Account(binance.AccountRequest{Timestamp: time.Now().Add(-time.Second)})
 	if err != nil {
@@ -49,6 +60,8 @@ func LambdaHandler() {
 	if err != nil {
 		log.Fatalf("cannot insert account info, %s", err)
 	}
+
+	log.Println("finish inserting")
 }
 
 func envOrFatal(key string) string {

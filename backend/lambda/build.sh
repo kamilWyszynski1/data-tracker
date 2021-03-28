@@ -1,1 +1,1 @@
-go build -ldflags "-X main.MONGO_USER atlasAdmin" -o $PWD/ cmd/main.go
+GOARCH=amd64 GOOS=linux go build cmd/main.go

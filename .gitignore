@@ -4,6 +4,7 @@
 token.json
 credentials.json
 .terraform.lock.hcl
-**/.terraform
-terraform*
+secrets.tfvars
+.terraform*
+*.tfstate*
 **.zip

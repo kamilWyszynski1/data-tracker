@@ -5,6 +5,10 @@ BinanceBot is an appslication that uses Binance API to track various asspect of 
 ## Used technologies:
 * Binance API
 * Google Sheets Golang SDK
+* [**AWS SNS**](https://aws.amazon.com/sns/?whats-new-cards.sort-by=item.additionalFields.postDateTime&whats-new-cards.sort-order=desc)
+* [**AWS LAMBDA**](https://aws.amazon.com/lambda/)
+* [**TERRAFORM**](https://www.terraform.io/)
+* [**MONGODB ATLAS**](https://www.mongodb.com/cloud/atlas)
 
 ## Functionality ideas:
 * Earn/Loss per trade

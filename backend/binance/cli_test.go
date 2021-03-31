@@ -45,8 +45,9 @@ func TestBinance_MyTrades(t *testing.T) {
 		secretKey: []byte(secretKey),
 	}
 	fmt.Println(b.MyTrades(MyTradesRequest{
-		Symbol:    "BTCUSDC",
-		Timestamp: time.Now().Add(-time.Second),
+		Symbol:     "BTCUSDC",
+		RecvWindow: 10000000,
+		Timestamp:  time.Now().Add(-time.Second),
 	}))
 }
 
@@ -57,9 +58,26 @@ func TestBinance_Account(t *testing.T) {
 		apiKey:    apiKey,
 		secretKey: []byte(secretKey),
 	}
+	ti, err := b.GetServerTime()
+	if err != nil {
+		t.Fatal(err)
+	}
 	r, err := b.Account(AccountRequest{
-		Timestamp: time.Now().Add(-time.Second),
+		Timestamp:  ti,
+		RecvWindow: 10000000,
 	})
+	fmt.Printf("%+v\n", r)
+	fmt.Println(err)
+}
+
+func TestBinance_GetServerTime(t *testing.T) {
+	b := Client{
+		h:         http.DefaultClient,
+		base:      "https://api.binance.com",
+		apiKey:    apiKey,
+		secretKey: []byte(secretKey),
+	}
+	r, err := b.GetServerTime()
 	fmt.Printf("%+v\n", r)
 	fmt.Println(err)
 }

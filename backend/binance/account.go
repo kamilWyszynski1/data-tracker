@@ -1,6 +1,7 @@
 package binance
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -13,7 +14,8 @@ import (
 // #################
 
 type AccountRequest struct {
-	Timestamp time.Time
+	Timestamp  time.Time
+	RecvWindow int
 }
 
 func (a AccountRequest) Validate() error {
@@ -22,6 +24,7 @@ func (a AccountRequest) Validate() error {
 
 func (a AccountRequest) EmbedData(q *url.Values) {
 	q.Set("timestamp", strconv.Itoa(timeToMilliseconds(a.Timestamp)))
+	q.Set("recvWindow", fmt.Sprintf("%d", a.RecvWindow))
 }
 
 type AccountResponse struct {
@@ -39,9 +42,9 @@ type AccountResponse struct {
 }
 
 type Balance struct {
-	Asset  string `json:"asset,omitempty" json:"bson,omitempty"`
+	Asset  string `json:"asset,omitempty" bson:"asset,omitempty"`
 	Free   string `json:"free" bson:"free,omitempty"`
-	Locked string `json:"locked" bson:"locked,omitempty"`
+	Locked string `json:"locked" bson:"-"`
 }
 
 func (a *AccountResponse) TrimEmptyBalances() {

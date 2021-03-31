@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
-
-	"github.com/binanceBot/backend/binance"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -22,7 +19,6 @@ var (
 	mongoUser     = common.EnvOrFatal("MONGO_USER")
 	mongoPasswd   = common.EnvOrFatal("MONGO_PASSWD")
 	mongoDatabase = common.EnvOrFatal("MONGO_DB")
-	mongoColl     = common.EnvOrFatal("MONGO_COLL")
 )
 
 func handler(ctx context.Context, snsEvent events.SNSEvent) {
@@ -40,17 +36,19 @@ func handler(ctx context.Context, snsEvent events.SNSEvent) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Println("mongoDB connected")
 
-		coll := client.Database(mongoDatabase).Collection(mongoColl)
-
-		var ar binance.AccountResponse
-
-		if err := json.NewDecoder(strings.NewReader(snsRecord.Message)).Decode(&ar); err != nil {
-			log.Fatal(err)
+		var data interface{}
+		if err := json.Unmarshal([]byte(snsRecord.Message), &data); err != nil {
+			log.Fatalf("failed to unrmashl message to bson.D, %s", err)
 		}
 
-		_, err = coll.InsertOne(ctx, binance.AccountResponseWithTimestamp{ar, time.Now()})
+		log.Println("mongoDB connected")
+		sub := snsRecord.Subject
+		split := strings.Split(sub, ":")
+
+		coll := client.Database(split[0]).Collection(split[1])
+
+		_, err = coll.InsertOne(ctx, data)
 		if err != nil {
 			log.Fatalf("cannot insert account info, %s", err)
 		}

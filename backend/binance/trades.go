@@ -1,6 +1,7 @@
 package binance
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -34,6 +35,7 @@ func (m MyTradesRequest) Validate() error {
 func (m MyTradesRequest) EmbedData(q *url.Values) {
 	q.Set("symbol", m.Symbol)
 	q.Set("timestamp", strconv.Itoa(timeToMilliseconds(m.Timestamp)))
+	q.Set("recvWindow", fmt.Sprintf("%d", m.RecvWindow))
 }
 
 type MyTradesResponse struct {

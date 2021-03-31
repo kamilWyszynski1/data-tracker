@@ -3,7 +3,7 @@ resource "aws_s3_bucket" "binance_lambda_subscriber" {
   acl    = "private"
 }
 
-variable "subscriber_version" { default = "0.0.1" }
+variable "subscriber_version" { default = "0.0.7" }
 
 resource "aws_s3_bucket_object" "binance_lambda_subscriber_code" {
   bucket = aws_s3_bucket.binance_lambda_subscriber.bucket
@@ -101,4 +101,13 @@ resource "aws_lambda_permission" "lambda_subscriber_with_sns" {
   principal = "sns.amazonaws.com"
   source_arn = aws_sns_topic.binance-publishes.arn
   statement_id = "AllowExecutionFromSNS"
+}
+
+/*
+ VPC
+*/
+
+resource "aws_iam_role_policy_attachment" "lambda_subscriber_vpc_access" {
+  role       = aws_iam_role.iam_for_lambda_subscriber.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }

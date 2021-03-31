@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 type Client struct {
@@ -32,6 +33,7 @@ const (
 	accountPath             = "api/v3/account"
 	allOrdersPath           = "api/v3/allOrders"
 	currentAveragePricePath = "api/v3/avgPrice"
+	timeCheckPath           = "api/v3/time"
 )
 
 func (c Client) Ping() {
@@ -101,6 +103,8 @@ func (c Client) Account(req AccountRequest) (*AccountResponse, error) {
 	r, _ := http.NewRequest(http.MethodGet, c.createURL(req, parsedURL), nil)
 	r.Header.Set(apiKeyHeader, c.apiKey)
 
+	fmt.Println(c.createURL(req, parsedURL))
+
 	var trades AccountResponse
 
 	resp, err := c.h.Do(r)
@@ -112,6 +116,25 @@ func (c Client) Account(req AccountRequest) (*AccountResponse, error) {
 	}
 
 	return &trades, nil
+}
+
+func (c Client) GetServerTime() (time.Time, error) {
+	u := fmt.Sprintf("%s/%s", c.base, timeCheckPath)
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return time.Time{}, err
+	}
+	r, _ := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
+	resp, err := c.h.Do(r)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	var str ServerTimeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&str); err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(str.ServerTime/1000., 0), nil
 }
 
 func (c Client) AllOrderList(req AllOrdersRequest) (*AllOrdersResponse, error) {

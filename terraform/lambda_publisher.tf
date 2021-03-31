@@ -3,7 +3,7 @@ resource "aws_s3_bucket" "binance_lambda_publisher" {
   acl    = "private"
 }
 
-variable "publisher_version" { default = "0.0.2" }
+variable "publisher_version" { default = "0.0.6" }
 
 resource "aws_s3_bucket_object" "binance_lambda_publisher_code" {
   bucket = aws_s3_bucket.binance_lambda_publisher.bucket
@@ -39,6 +39,7 @@ EOF
 
 variable "binance_api_key" {}
 variable "binance_secret_key" {}
+variable "topic_arn" {}
 
 resource "aws_lambda_function" "binance_lambda_publisher" {
   function_name = "binance_lambda_publisher"
@@ -58,24 +59,30 @@ resource "aws_lambda_function" "binance_lambda_publisher" {
     variables = {
       BINANCE_API_KEY    = var.binance_api_key
       BINANCE_SECRET_KEY = var.binance_secret_key
+      MONGO_DB           = "binance"
+      MONGO_COLL         = "ratio"
+      TOPIC_ARN = var.topic_arn
     }
   }
 
   depends_on = [
     aws_s3_bucket_object.binance_lambda_publisher_code,
     aws_iam_role.iam_for_lambda_publisher,
-
   ]
 }
 
-resource "aws_cloudwatch_event_rule" "binance_lambda_publisher_cron" {
-  name        = "binance_lambda_run"
-  description = "Run binance_lambda periodically"
+/*
+  CLOUDWATCH
+*/
 
-  schedule_expression = "rate(24 hours)"
+resource "aws_cloudwatch_event_rule" "binance_lambda_publisher_cron" {
+  name        = "binance_lambda_publisher_run"
+  description = "Run binance_lambda_publisher periodically"
+
+  schedule_expression = "rate(5 minutes)"
 }
 
-resource "aws_cloudwatch_event_target" "binance_lambda_cron_target" {
+resource "aws_cloudwatch_event_target" "binance_lambda_publisher_cron_target" {
   arn  = aws_lambda_function.binance_lambda_publisher.arn
   rule = aws_cloudwatch_event_rule.binance_lambda_publisher_cron.name
 }
@@ -162,4 +169,13 @@ EOF
 resource "aws_iam_role_policy_attachment" "lambda_publisher_sns" {
   role       = aws_iam_role.iam_for_lambda_publisher.name
   policy_arn = aws_iam_policy.lambda_publisher_policy.arn
+}
+
+/*
+   VPC
+*/
+
+resource "aws_iam_role_policy_attachment" "lambda_publisher_vpc_access" {
+  role       = aws_iam_role.iam_for_lambda_publisher.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }

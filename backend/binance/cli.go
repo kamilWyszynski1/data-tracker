@@ -34,6 +34,7 @@ const (
 	allOrdersPath           = "api/v3/allOrders"
 	currentAveragePricePath = "api/v3/avgPrice"
 	timeCheckPath           = "api/v3/time"
+	orderPath               = "api/v3/order"
 )
 
 func (c Client) Ping() {
@@ -111,10 +112,15 @@ func (c Client) Account(req AccountRequest) (*AccountResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&trades); err != nil {
+
+	defer resp.Body.Close()
+	body, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, parseError(body)
+	}
+	if err := json.Unmarshal(body, &trades); err != nil {
 		return nil, err
 	}
-
 	return &trades, nil
 }
 
@@ -224,6 +230,36 @@ func (c Client) SymbolTickerPrice(symbol string) (float64, error) {
 		return 0, err
 	}
 	return fl, nil
+}
+
+func (c Client) Order(req OrderRequest) (*OrderResponse, error) {
+	u := fmt.Sprintf("%s/%s", c.base, orderPath)
+
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(c.createURL(req, parsedURL))
+	r, _ := http.NewRequest(http.MethodGet, c.createURL(req, parsedURL), nil)
+	r.Header.Set(apiKeyHeader, c.apiKey)
+
+	var order OrderResponse
+
+	resp, err := c.h.Do(r)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+	body, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, parseError(body)
+	}
+	if err := json.Unmarshal(body, &order); err != nil {
+		return nil, err
+	}
+
+	return &order, nil
 }
 
 func parseError(b []byte) error {

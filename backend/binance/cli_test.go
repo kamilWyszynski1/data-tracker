@@ -58,13 +58,13 @@ func TestBinance_Account(t *testing.T) {
 		apiKey:    apiKey,
 		secretKey: []byte(secretKey),
 	}
-	ti, err := b.GetServerTime()
-	if err != nil {
-		t.Fatal(err)
-	}
+	//ti, err := b.GetServerTime()
+	//if err != nil {
+	//	t.Fatal(err)
+	//}
 	r, err := b.Account(AccountRequest{
-		Timestamp:  ti,
-		RecvWindow: 10000000,
+		Timestamp:  time.Now().Add(-time.Second),
+		RecvWindow: 60000,
 	})
 	fmt.Printf("%+v\n", r)
 	fmt.Println(err)
@@ -116,6 +116,27 @@ func TestClient_SymbolTickerPrice(t *testing.T) {
 		secretKey: []byte(secretKey),
 	}
 	r, err := b.SymbolTickerPrice("BTCBUSD")
+	fmt.Printf("%+v\n", r)
+	fmt.Println(err)
+}
+
+func TestClient_Order(t *testing.T) {
+	b := Client{
+		h:         http.DefaultClient,
+		base:      "https://api.binance.com",
+		apiKey:    apiKey,
+		secretKey: []byte(secretKey),
+	}
+	r, err := b.Order(OrderRequest{
+		Symbol: "BTCBUSD",
+		Side:   "BUY",
+		Type:   "MARKET",
+		//Quantity: 0.1,
+		//Price:       0.1,
+		//TimeInForce: "GTC",
+		QuoteOrderQty: 1.12,
+		//Timestamp:     time.Now().Add(-time.Second),
+	})
 	fmt.Printf("%+v\n", r)
 	fmt.Println(err)
 }

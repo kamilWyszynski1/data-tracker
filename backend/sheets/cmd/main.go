@@ -1,21 +1,16 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
-	"sort"
-	"strconv"
 	"time"
 
-	"github.com/binanceBot/backend/binance"
 	"github.com/binanceBot/backend/sheets/api"
-	"google.golang.org/api/option"
-
-	"golang.org/x/net/context"
+	"github.com/binanceBot/backend/sheets/tracker"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
 
@@ -23,7 +18,8 @@ type pair struct {
 	x, y int64
 }
 
-const spreadsheetId = "1T62QvQrrgNnKNB0JdC24qHm6bYGMgbY4usY8FLFEcec"
+// spreadsheetID is a spreadsheet ID. This is found in the URL of your sheet.
+const spreadsheetID = "12rVPMk3Lv7VouUZBglDd_oRDf6PHU7m6YbfctmFYYlg"
 
 func main() {
 	b, err := ioutil.ReadFile(os.Getenv("CREDENTIALS_FILE"))
@@ -42,183 +38,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to retrieve Sheets client: %v", err)
 	}
-	var (
-		binanceApiKey    = os.Getenv("BINANCE_API_KEY")
-		binanceSecretKey = os.Getenv("BINANCE_SECRET_KEY")
-	)
 
-	bCli := binance.NewBinance(http.DefaultClient, "https://api.binance.com", binanceApiKey, []byte(binanceSecretKey))
+	log := log.Default()
+	tr := tracker.NewTracker(srv, log)
+	tr.AddTrackingFn("A", time.Second*15, func(ctx context.Context) (tracker.TrackedData, error) {
+		return []string{"1", "2"}, nil
+	}, tracker.WithTimestamp(true))
+	tr.Start(context.Background())
+	time.Sleep(time.Minute)
+	// var vr sheets.ValueRange
 
-	accInfo, err := bCli.Account(binance.AccountRequest{
-		Timestamp: time.Now().Add(-time.Second),
-	})
-	if err != nil {
-		log.Fatalf("Failed to get account info")
-	}
+	// myval := []interface{}{"One", "Two"}
+	// vr.Values = append(vr.Values, myval)
+	// _, err = srv.Spreadsheets.Values.Update(spreadsheetID, "A1", &vr).ValueInputOption("RAW").Do()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	balance := accInfo.Balances
-	sort.Slice(balance, func(i, j int) bool {
-		return balance[i].Asset <= balance[j].Asset
-	})
-
-	var (
-		len_    = 0
-		assets  = make([]interface{}, 0)
-		amounts = make([]interface{}, 0)
-		ratios  = make([]interface{}, 0)
-	)
-	for _, balance := range accInfo.Balances {
-		v, err := strconv.ParseFloat(balance.Free, 64)
-		if err != nil {
-			log.Printf("error occured: %s", err)
-			continue
-		}
-		if v != 0 {
-			assets = append(assets, balance.Asset)
-			amounts = append(amounts, balance.Free)
-			len_++
-			ratio, err := bCli.SymbolTickerPrice(fmt.Sprintf("%s%s", balance.Asset, "BUSD")) // ratios based on USD price
-			if err != nil {
-				log.Printf("error when getting ticker price: %s\n", err)
-			}
-			ratios = append(ratios, ratio)
-		}
-	}
-
-	var (
-		date    = time.Now().Format("2006-01-02")
-		entryNo = 0
-	)
-
-	vr := &sheets.ValueRange{}
-	vr.Values = append(vr.Values, []interface{}{date})
-	_, err = srv.Spreadsheets.Values.Update(spreadsheetId, fmt.Sprintf("Balance!A%d", 1+entryNo), vr).ValueInputOption("USER_ENTERED").Do()
-	if err != nil {
-		panic(err)
-	}
-
-	vr = &sheets.ValueRange{}
-	{
-		vr.Values = append(vr.Values, assets)
-		vr.Values = append(vr.Values, amounts)
-		vr.Values = append(vr.Values, ratios)
-	}
-	range_ := fmt.Sprintf("Balance!B%d:%s%d", 1+entryNo, string(rune('B'+len_-1)), 3+entryNo)
-	fmt.Printf("insertint to: %s\n", range_)
-	_, err = srv.Spreadsheets.Values.Update(spreadsheetId, range_, vr).ValueInputOption("USER_ENTERED").Do()
-	if err != nil {
-		panic(err)
-	}
-}
-
-func insertTrades(srv *sheets.Service, bCli *binance.Client) {
-	// Prints the names and majors of students in a sample spreadsheet:
-	// https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
-	readRange := "A:A"
-	resp, err := srv.Spreadsheets.Values.Get(spreadsheetId, readRange).Do()
-	if err != nil {
-		log.Fatalf("Unable to retrieve data from sheet: %v", err)
-	}
-
-	var sells []pair
-
-	if len(resp.Values) == 0 {
-		fmt.Println("No data found.")
-	} else {
-		for i, row := range resp.Values {
-			if len(row) == 0 {
-				continue
-			}
-
-			crypto := row[0].(string)
-			fmt.Println(crypto)
-
-			mtr, err := bCli.MyTrades(binance.MyTradesRequest{
-				Symbol:    crypto,
-				Timestamp: time.Now().Add(-time.Second),
-			})
-			if err != nil {
-				panic(fmt.Errorf("failed to get MyTrades, %w", err))
-			}
-
-			sort.Slice(mtr.Trades, func(i, j int) bool {
-				return mtr.Trades[i].Time <= mtr.Trades[j].Time
-			})
-
-			var (
-				len_       = len(mtr.Trades)
-				ratios     = make([]interface{}, 0, len_)
-				times      = make([]interface{}, 0, len_)
-				qtys       = make([]interface{}, 0, len_)
-				prices     = make([]interface{}, 0, len_)
-				commAssets = make([]interface{}, 0, len_)
-				comms      = make([]interface{}, 0, len_)
-			)
-			for j, trade := range mtr.Trades {
-				if !trade.Isbuyer {
-					sells = append(sells, pair{int64(i), int64(j)})
-					qtys = append(qtys, "-"+trade.Qty)
-				} else {
-					qtys = append(qtys, trade.Qty)
-				}
-				ratios = append(ratios, trade.Price)
-				times = append(times, trade.GetTimeFormat("2006-01-02"))
-
-				prices = append(prices, trade.Quoteqty)
-				commAssets = append(commAssets, trade.Commissionasset)
-				comms = append(comms, trade.Commission)
-
-			}
-
-			vr := &sheets.ValueRange{}
-			{
-				vr.Values = append(vr.Values, ratios)
-				vr.Values = append(vr.Values, times)
-				vr.Values = append(vr.Values, qtys)
-				vr.Values = append(vr.Values, prices)
-				vr.Values = append(vr.Values, commAssets)
-				vr.Values = append(vr.Values, comms)
-
-			}
-			fmt.Println("values: ", ratios)
-			range_ := fmt.Sprintf("B%d:%s%d", 1+i, string(rune('B'+len(ratios)-1)), 6+i)
-			fmt.Printf("inserting %s to range: %s\n", crypto, range_)
-			_, err = srv.Spreadsheets.Values.Update(spreadsheetId, range_, vr).ValueInputOption("USER_ENTERED").Do()
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		reqs := make([]*sheets.Request, 0, len(sells))
-		const height = 5
-		for _, p := range sells {
-
-			reqs = append(reqs, &sheets.Request{
-				RepeatCell: &sheets.RepeatCellRequest{
-					Cell: &sheets.CellData{
-						UserEnteredFormat: &sheets.CellFormat{
-							BackgroundColor: api.ColorLightRed2,
-						},
-					},
-					Fields: "userEnteredFormat(backgroundColor)",
-					Range: &sheets.GridRange{
-						EndColumnIndex:   p.y + 2,
-						EndRowIndex:      p.x + 1 + height,
-						StartColumnIndex: p.y + 1,
-						StartRowIndex:    p.x,
-						SheetId:          0,
-					},
-				},
-			})
-		}
-
-		batchResp, err := srv.Spreadsheets.BatchUpdate(spreadsheetId, &sheets.BatchUpdateSpreadsheetRequest{
-			Requests: reqs,
-		}).Do()
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(batchResp)
-
-	}
 }

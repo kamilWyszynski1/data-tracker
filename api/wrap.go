@@ -2,10 +2,13 @@ package api
 
 import (
 	"context"
-	"data-tracker/env"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
+
+	"data-tracker/env"
+	"data-tracker/tracker"
 
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
@@ -14,6 +17,11 @@ import (
 
 type APIWrapper struct {
 	srv *sheets.Service
+}
+
+// Service returns srv.
+func (a APIWrapper) Service() *sheets.Service {
+	return a.srv
 }
 
 // NewAPIWrapperWithInit returns new APIWrapper instance.
@@ -60,7 +68,7 @@ func (a APIWrapper) GetRow(spreadsheetID string, range_ string) ([]interface{}, 
 	return resp.Values[0], nil
 }
 
-// GetColumn get method but returns values from single column
+// GetColumn get method but returns values from single column.
 func (a APIWrapper) GetColumn(spreadsheetID string, range_ string) ([]interface{}, error) {
 	resp, err := a.srv.Spreadsheets.Values.Get(spreadsheetID, range_).Do()
 	if err != nil {
@@ -73,6 +81,30 @@ func (a APIWrapper) GetColumn(spreadsheetID string, range_ string) ([]interface{
 	return vals, nil
 }
 
+func (a APIWrapper) GetCell(spreadsheetID, sheet, cell string) (string, error) {
+	range_ := tracker.AddSheetToRange(sheet, cell)
+
+	values, err := a.Get(spreadsheetID, range_)
+	if err != nil {
+		return "", err
+	}
+	if len(values) == 0 {
+		return "", nil
+	}
+	if len(values) != 1 {
+		return "", errors.New("returned more that one row")
+	}
+	row := values[0]
+	if len(row) != 1 {
+		return "", errors.New("returned more than one cell")
+	}
+	str, ok := row[0].(string)
+	if !ok {
+		return "", errors.New("could not project cell value to string")
+	}
+	return str, nil
+}
+
 func (a APIWrapper) Write(ctx context.Context, spreadsheetID string, range_ string, data [][]interface{}) error {
 	var vr sheets.ValueRange
 	vr.Values = append(vr.Values, data...)
@@ -83,5 +115,18 @@ func (a APIWrapper) Write(ctx context.Context, spreadsheetID string, range_ stri
 		Context(ctx).
 		Do()
 
+	return err
+}
+
+// clearedRange this range will be cleared.
+// Value if taken from ctrl+A in google sheet browser view.
+const clearedRange = "1:1000"
+
+// Clear clears whole sheet. If sheet is empty, method clears first sheet.
+func (a APIWrapper) Clear(ctx context.Context, spreadsheetID, sheet string) error {
+	_, err := a.srv.Spreadsheets.Values.
+		Clear(spreadsheetID, tracker.AddSheetToRange(sheet, clearedRange), &sheets.ClearValuesRequest{}).
+		Context(ctx).
+		Do()
 	return err
 }

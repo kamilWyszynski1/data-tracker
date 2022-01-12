@@ -20,37 +20,69 @@ type GetDataFn func(ctx context.Context) (TrackedData, error)
 // If Direction is a number e.g. '1', '2', '3' data will be written in given row column by column.
 type Direction string
 
+// Callback is a function that will be run after data will be written.
+// Handy in debuging and testing
+type Callback func(err error)
+
 // TrackingTask holds information about tracking task.
 type TrackingTask struct {
+	spreadsheetID string // spreadsheet where data will be written.
+	// sheet is a exact sheet of spreadsheet. Default is empty, first sheet.
+	sheet         string
 	fn            GetDataFn
 	direction     Direction
-	withTimestamp bool // if set, timestmap will be written next to written data.
-	// timestampBefore indicates place of timestmap.
+	withTimestamp bool // if set, timestamp will be written next to written data.
+	// timestampBefore indicates place of timestamp.
 	// If false, timestamp will be written before data(row or column before).
 	// If true, timestamp will be written after data(row or column after).
 	timestampAfter bool
 	interval       time.Duration // how often task will be run.
+	// callbacks will be run after whole writting is done.
+	callbacks []Callback
 }
 
-// trackingOption is a function that sets TrackingTask fields.
-type trackingOption func(*TrackingTask)
+// taskOption is a function that sets TrackingTask fields.
+type taskOption func(*TrackingTask)
 
 // WithTimestamp sets withTimestamp.
 // If after is true, timestamp will be written after(row or column) the data.
-func WithTimestamp(after bool) trackingOption {
+func WithTimestamp(after bool) taskOption {
 	return func(tt *TrackingTask) {
 		tt.withTimestamp = true
 		tt.timestampAfter = after
 	}
 }
 
+// WithSheet sets sheet.
+func WithSheet(sheet string) taskOption {
+	return func(tt *TrackingTask) {
+		tt.sheet = sheet
+	}
+}
+
+// WithCallback adds one callback to TrackingTask.
+func WithCallback(c Callback) taskOption {
+	return func(tt *TrackingTask) {
+		tt.callbacks = append(tt.callbacks, c)
+	}
+}
+
+// NewTrackingTask returns new instance of TrackingTask.
+func NewTrackingTask(spreadshetID string, direction Direction, interval time.Duration, fn GetDataFn, opts ...taskOption) TrackingTask {
+	tt := &TrackingTask{
+		spreadsheetID: spreadshetID,
+		fn:            fn,
+		direction:     direction,
+		interval:      interval,
+	}
+	for _, opt := range opts {
+		opt(tt)
+	}
+	return *tt
+}
+
 // wrappedGetDataFn is a wrapper for GetDataFn that gets data and writes it.
 type wrappedGetDataFn func(ctx context.Context) error
-
-// TODO: set in Tracker.
-const (
-	spreadsheetID = "12rVPMk3Lv7VouUZBglDd_oRDf6PHU7m6YbfctmFYYlg"
-)
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
@@ -69,28 +101,29 @@ func NewTracker(svc *sheets.Service, log *log.Logger) *Tracker {
 }
 
 // AddTrackingFn adds TrackingFn to set of saved TrackingFns.
-func (t *Tracker) AddTrackingFn(direction Direction, interval time.Duration, fn GetDataFn, opts ...trackingOption) {
-	tt := &TrackingTask{
-		fn:        fn,
-		direction: direction,
-		interval:  interval,
-	}
-	for _, opt := range opts {
-		opt(tt)
-	}
-	t.tasks = append(t.tasks, *tt)
+func (t *Tracker) AddTrackingFn(tt TrackingTask) {
+	t.tasks = append(t.tasks, tt)
 }
 
 // wrapWithSheetsService wraps TrackinTask data into single function that finds place to write
 // data from TrackingTask and writes it.
 func (t *Tracker) wrapWithSheetsService(task TrackingTask) wrappedGetDataFn {
-	return func(ctx context.Context) error {
+	runCallbacks := func(err error) {
+		for _, cb := range task.callbacks {
+			cb(err)
+		}
+	}
+
+	return func(ctx context.Context) (err error) {
+		defer runCallbacks(err)
+
 		data, err := task.fn(ctx)
 		if err != nil {
 			return err
 		}
 
-		resp, err := t.srv.Spreadsheets.Values.Get(spreadsheetID, fmt.Sprintf("%s:%s", task.direction, task.direction)).Do()
+		range_ := AddSheetToRange(task.sheet, fmt.Sprintf("%s:%s", task.direction, task.direction))
+		resp, err := t.srv.Spreadsheets.Values.Get(task.spreadsheetID, range_).Do()
 		if err != nil {
 			return err
 		}
@@ -110,8 +143,9 @@ func (t *Tracker) wrapWithSheetsService(task TrackingTask) wrappedGetDataFn {
 			vr.Values = append(vr.Values, values)
 		}
 
+		range_ = AddSheetToRange(task.sheet, fmt.Sprintf("%s%d", task.direction, elementLen+1))
 		_, err = t.srv.Spreadsheets.Values.
-			Update(spreadsheetID, fmt.Sprintf("%s%d", task.direction, elementLen+1), &vr).
+			Update(task.spreadsheetID, range_, &vr).
 			ValueInputOption("RAW").
 			Context(ctx).
 			Do()
@@ -143,5 +177,12 @@ func runTask(ctx context.Context, interval time.Duration, fn wrappedGetDataFn) {
 			return
 		}
 	}
+}
 
+// AddSheetToRange adds sheet before range.
+func AddSheetToRange(sheet, range_ string) string {
+	if sheet == "" {
+		return range_
+	}
+	return fmt.Sprintf("%s!%s", sheet, range_)
 }

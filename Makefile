@@ -32,10 +32,6 @@ clean: ## Remove build related file
 vendor: ## Copy of all packages needed to support builds and tests in the vendor directory
 	$(GOCMD) mod vendor
 
-watch: ## Run the code with cosmtrek/air to have automatic reload on changes
-	$(eval PACKAGE_NAME=$(shell head -n 1 go.mod | cut -d ' ' -f2))
-	docker run -it --rm -w /go/src/$(PACKAGE_NAME) -v $(shell pwd):/go/src/$(PACKAGE_NAME) -p $(SERVICE_PORT):$(SERVICE_PORT) cosmtrek/air
-
 ## Test:
 test: ## Run the tests of the project
 ifeq ($(EXPORT_RESULT), true)
@@ -56,6 +52,9 @@ endif
 ## Lint:
 lint: lint-go lint-dockerfile lint-yaml ## Run all available linters
 
+lint-install:
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.43.0
+
 lint-dockerfile: ## Lint your Dockerfile
 # If dockerfile is present we lint it.
 ifeq ($(shell test -e ./Dockerfile && echo -n yes),yes)
@@ -66,7 +65,6 @@ ifeq ($(shell test -e ./Dockerfile && echo -n yes),yes)
 endif
 
 lint-go: ## Use golintci-lint on your project
-	$(eval OUTPUT_OPTIONS = $(shell [ "${EXPORT_RESULT}" == "true" ] && echo "--out-format checkstyle ./... | tee /dev/tty > checkstyle-report.xml" || echo "" ))
 	docker run --rm -v $(shell pwd):/app -w /app golangci/golangci-lint:latest-alpine golangci-lint run --deadline=65s $(OUTPUT_OPTIONS)
 
 lint-yaml: ## Use yamllint on the yaml file of your projects

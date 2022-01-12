@@ -55,7 +55,7 @@ const (
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
 type Tracker struct {
-	svc   *sheets.Service
+	srv   *sheets.Service
 	log   *log.Logger
 	tasks []TrackingTask
 }
@@ -63,7 +63,7 @@ type Tracker struct {
 // NewTracker creates new instance of Tracker.
 func NewTracker(svc *sheets.Service, log *log.Logger) *Tracker {
 	return &Tracker{
-		svc: svc,
+		srv: svc,
 		log: log,
 	}
 }
@@ -90,7 +90,7 @@ func (t *Tracker) wrapWithSheetsService(task TrackingTask) wrappedGetDataFn {
 			return err
 		}
 
-		resp, err := t.svc.Spreadsheets.Values.Get(spreadsheetID, fmt.Sprintf("%s:%s", task.direction, task.direction)).Do()
+		resp, err := t.srv.Spreadsheets.Values.Get(spreadsheetID, fmt.Sprintf("%s:%s", task.direction, task.direction)).Do()
 		if err != nil {
 			return err
 		}
@@ -110,7 +110,7 @@ func (t *Tracker) wrapWithSheetsService(task TrackingTask) wrappedGetDataFn {
 			vr.Values = append(vr.Values, values)
 		}
 
-		_, err = t.svc.Spreadsheets.Values.
+		_, err = t.srv.Spreadsheets.Values.
 			Update(spreadsheetID, fmt.Sprintf("%s%d", task.direction, elementLen+1), &vr).
 			ValueInputOption("RAW").
 			Context(ctx).

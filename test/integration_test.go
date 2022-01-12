@@ -1,14 +1,13 @@
-package main
+package integration_test
 
 import (
 	"context"
 	"data-tracker/api"
-	"data-tracker/env"
 	"data-tracker/tracker"
-
 	"io/ioutil"
 	"log"
 	"os"
+	"testing"
 	"time"
 
 	"golang.org/x/oauth2/google"
@@ -16,8 +15,9 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
-func main() {
-	b, err := ioutil.ReadFile(os.Getenv(env.CREDENTIALS_FILE_PATH))
+// TestTracking tests if tracking works.
+func TestTracking(t *testing.T) {
+	b, err := ioutil.ReadFile(os.Getenv("CREDENTIALS_FILE"))
 	if err != nil {
 		log.Fatalf("Unable to read client secret file: %v", err)
 	}
@@ -29,16 +29,24 @@ func main() {
 	}
 	client := api.GetClient(config)
 
-	srv, err := sheets.NewService(context.Background(), option.WithHTTPClient(client))
+	ctx := context.Background()
+
+	srv, err := sheets.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
 		log.Fatalf("Unable to retrieve Sheets client: %v", err)
 	}
 
-	log := log.Default()
-	tr := tracker.NewTracker(srv, log)
-	tr.AddTrackingFn("A", time.Second*15, func(ctx context.Context) (tracker.TrackedData, error) {
-		return []string{"1", "2"}, nil
-	}, tracker.WithTimestamp(true))
-	tr.Start(context.Background())
-	time.Sleep(time.Minute)
+	ctx, cancel := context.WithCancel(ctx)
+
+	tr := tracker.NewTracker(srv, log.Default())
+	tr.AddTrackingFn(
+		tracker.Direction("A"),
+		time.Second,
+		func(ctx context.Context) (tracker.TrackedData, error) {
+			cancel()
+			return tracker.TrackedData{"elo"}, nil
+		},
+	)
+	tr.Start(ctx)
+
 }

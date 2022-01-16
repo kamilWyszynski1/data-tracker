@@ -242,15 +242,20 @@ mod tests {
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
     struct TestAPI {
         check: fn(Vec<Vec<String>>, &str, &str),
+        fail: bool,
+        fail_msg: String,
     }
 
     #[async_trait]
     impl API for TestAPI {
         async fn write(&self, v: Vec<Vec<String>>, s: &str, r: &str) -> Result<(), String> {
             (self.check)(v, s, r);
+            if self.fail {
+                return Err(self.fail_msg.clone());
+            }
             Ok(())
         }
     }
@@ -272,7 +277,11 @@ mod tests {
         }
 
         use crate::tracker::{Direction, Tracker, TrackingTask};
-        let mut t = Tracker::new(TestAPI { check: check_cases });
+        let mut t = Tracker::new(TestAPI {
+            check: check_cases,
+            fail: false,
+            fail_msg: "".to_string(),
+        });
         t.add_task(
             TrackingTask::new(
                 "spreadsheet1".to_string(),
@@ -292,6 +301,39 @@ mod tests {
             .with_name("name test2".to_string()),
         );
 
+        t.run().await;
+    }
+
+    #[tokio::test]
+    async fn test_run_callback() {
+        fn check_cases(_: Vec<Vec<String>>, _: &str, _: &str) {}
+        fn callback(res: Result<(), String>) {
+            assert_eq!(res.is_err(), true);
+            match res {
+                Err(e) => {
+                    assert_eq!(e, "fail".to_string());
+                }
+                _ => panic!("failed"),
+            }
+        }
+
+        use crate::tracker::{Direction, Tracker, TrackingTask};
+        let mut t = Tracker::new(TestAPI {
+            check: check_cases,
+            fail: true,
+            fail_msg: "fail".to_string(),
+        });
+
+        t.add_task(
+            TrackingTask::new(
+                "spreadsheet1".to_string(),
+                "A1:B1".to_string(),
+                Direction::Vertical,
+                test_get_data_fn,
+            )
+            .with_name("name test".to_string())
+            .with_callback(callback),
+        );
         t.run().await;
     }
 }

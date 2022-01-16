@@ -1,4 +1,5 @@
 use crate::wrap::API;
+use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::vec::Vec;
 use uuid;
@@ -37,6 +38,8 @@ pub struct TrackingTask {
     direction: Direction,
     callbacks: Option<Vec<Callback>>,
 }
+
+unsafe impl Send for TrackingTask {}
 
 impl TrackingTask {
     // creates new TrackingTask.
@@ -91,16 +94,24 @@ impl TrackingTask {
     pub fn get_data(&self) -> Result<TrackedData, String> {
         (self.get_data_fn)()
     }
+
+    pub fn get_name(&self) -> &str {
+        if let Some(name) = &self.name {
+            name
+        } else {
+            "No name"
+        }
+    }
 }
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
-pub struct Tracker<A: API + std::marker::Sync> {
+pub struct Tracker<A: 'static + API + Sync + Send + Clone> {
     api: A,
     tasks: Vec<TrackingTask>,
 }
 
-impl<A: API + std::marker::Sync> Tracker<A> {
+impl<A: 'static + API + Sync + Send + Clone> Tracker<A> {
     // creates new Tracker.
     pub fn new(api: A) -> Self {
         Tracker {
@@ -115,13 +126,22 @@ impl<A: API + std::marker::Sync> Tracker<A> {
     }
 
     // runs all tasks.
-    pub async fn run(&'static self) {
+    pub async fn run(&self) {
+        // for task in &self.tasks {
+        //     let api = Arc::new(self.api.clone());
+        //     let task = Arc::new(task);
+        //     tokio::spawn(run_single_task(api, task));
+        // }
+        // let task = Arc::new(self.tasks.get(0).unwrap().clone());
+        // tokio::spawn(async move { println!("{}", task.get_name()) })
+        //     .await
+        //     .unwrap();
+        let mut joins = Vec::new(); // create vector of JoinHandle, we will join them later.
+
         for task in &self.tasks {
-            let api = Arc::new(&self.api);
-            let task = Arc::new(task);
-            tokio::spawn(async move {
-                let task = task.clone();
-                let api = api.clone();
+            let task = Arc::new(task.clone());
+            let api = Arc::new(self.api.clone());
+            joins.push(tokio::spawn(async move {
                 let result = task.get_data();
                 match result {
                     Ok(data) => {
@@ -139,11 +159,16 @@ impl<A: API + std::marker::Sync> Tracker<A> {
                         task.run_callbacks(Err(e));
                     }
                 }
-            });
+            }));
+        }
+
+        for join in joins {
+            join.await.unwrap();
         }
     }
 }
 
+// create_write_vec creates a vector of WriteData from a TrackedData.
 fn create_write_vec(direction: Direction, data: TrackedData) -> Vec<Vec<String>> {
     let mut write_vec = Vec::new();
     match direction {
@@ -212,5 +237,61 @@ mod tests {
         tt = tt.with_description("test".to_string());
         assert!(tt.description.is_some());
         assert_eq!(tt.description.unwrap(), "test")
+    }
+
+    use crate::wrap::API;
+    use async_trait::async_trait; // crate for async traits.
+
+    #[derive(Clone, Copy)]
+    struct TestAPI {
+        check: fn(Vec<Vec<String>>, &str, &str),
+    }
+
+    #[async_trait]
+    impl API for TestAPI {
+        async fn write(&self, v: Vec<Vec<String>>, s: &str, r: &str) -> Result<(), String> {
+            (self.check)(v, s, r);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_run() {
+        fn check_cases(v: Vec<Vec<String>>, s: &str, r: &str) {
+            let cases = vec![
+                (vec![vec!["test".to_string()]], "spreadsheet1", "A1:B1"),
+                (vec![vec!["test".to_string()]], "spreadsheet2", "C1:D1"),
+            ];
+            for (i, c) in cases.iter().enumerate() {
+                if v == c.0 && s == c.1 && r == c.2 {
+                    println!("Case {} passed", i);
+                    return;
+                }
+            }
+            panic!("failed")
+        }
+
+        use crate::tracker::{Direction, Tracker, TrackingTask};
+        let mut t = Tracker::new(TestAPI { check: check_cases });
+        t.add_task(
+            TrackingTask::new(
+                "spreadsheet1".to_string(),
+                "A1:B1".to_string(),
+                Direction::Vertical,
+                test_get_data_fn,
+            )
+            .with_name("name test".to_string()),
+        );
+        t.add_task(
+            TrackingTask::new(
+                "spreadsheet2".to_string(),
+                "C1:D1".to_string(),
+                Direction::Vertical,
+                test_get_data_fn,
+            )
+            .with_name("name test2".to_string()),
+        );
+
+        t.run().await;
     }
 }

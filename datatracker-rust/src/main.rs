@@ -1,3 +1,4 @@
+#![deny(elided_lifetimes_in_paths)]
 mod tracker;
 mod wrap;
 

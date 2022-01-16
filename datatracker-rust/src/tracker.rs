@@ -1,7 +1,7 @@
+use crate::wrap::API;
+use std::sync::Arc;
 use std::vec::Vec;
 use uuid;
-
-use crate::wrap::APIWrapper;
 
 // TrackedData is a type wrap for data that is being tracked. It'll be written as string anyway.
 type TrackedData = Vec<String>;
@@ -9,7 +9,7 @@ type TrackedData = Vec<String>;
 // GetDataFn is a type wrap for a function that returns a TrackedData.
 type GetDataFn = fn() -> Result<TrackedData, String>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 // Direction indicates direction of written data.
 pub enum Direction {
     Vertical,   // data will be written in columns.
@@ -95,14 +95,14 @@ impl TrackingTask {
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
-pub struct Tracker {
-    api: APIWrapper,
+pub struct Tracker<A: API + std::marker::Sync> {
+    api: A,
     tasks: Vec<TrackingTask>,
 }
 
-impl Tracker {
+impl<A: API + std::marker::Sync> Tracker<A> {
     // creates new Tracker.
-    pub fn new(api: APIWrapper) -> Tracker {
+    pub fn new(api: A) -> Self {
         Tracker {
             api,
             tasks: Vec::new(),
@@ -114,47 +114,53 @@ impl Tracker {
         self.tasks.push(task);
     }
 
-    fn create_write_vec(&self, data: TrackedData) -> Vec<Vec<String>> {
-        let mut write_vec = Vec::new();
-        match self.tasks[0].direction {
-            Direction::Vertical => {
-                for v in data {
-                    write_vec.push(vec![v]);
-                }
-            }
-            Direction::Horizontal => {
-                let mut row = Vec::new();
-                for v in data {
-                    row.push(v);
-                }
-                write_vec.push(row);
-            }
-        }
-        write_vec
-    }
-
     // runs all tasks.
-    pub async fn run(&mut self) {
+    pub async fn run(&'static self) {
         for task in &self.tasks {
-            let result = task.get_data();
-            match result {
-                Ok(data) => {
-                    let result = self
-                        .api
-                        .write(
-                            self.create_write_vec(data),
-                            &task.spreadsheet_id,
-                            &task.sheet,
-                        )
-                        .await;
-                    task.run_callbacks(result);
+            let api = Arc::new(&self.api);
+            let task = Arc::new(task);
+            tokio::spawn(async move {
+                let task = task.clone();
+                let api = api.clone();
+                let result = task.get_data();
+                match result {
+                    Ok(data) => {
+                        let result = api
+                            .as_ref()
+                            .write(
+                                create_write_vec(task.as_ref().direction, data),
+                                &task.spreadsheet_id,
+                                &task.sheet,
+                            )
+                            .await;
+                        task.run_callbacks(result);
+                    }
+                    Err(e) => {
+                        task.run_callbacks(Err(e));
+                    }
                 }
-                Err(e) => {
-                    task.run_callbacks(Err(e));
-                }
-            }
+            });
         }
     }
+}
+
+fn create_write_vec(direction: Direction, data: TrackedData) -> Vec<Vec<String>> {
+    let mut write_vec = Vec::new();
+    match direction {
+        Direction::Vertical => {
+            for v in data {
+                write_vec.push(vec![v]);
+            }
+        }
+        Direction::Horizontal => {
+            let mut row = Vec::new();
+            for v in data {
+                row.push(v);
+            }
+            write_vec.push(row);
+        }
+    }
+    write_vec
 }
 
 #[cfg(test)]

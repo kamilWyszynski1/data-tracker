@@ -95,6 +95,41 @@ impl APIWrapper {
         );
         APIWrapper { client }
     }
+
+    // get returns cell value from a sheet.
+    pub async fn get(&self, sheet_id: &str, range: &str) -> Result<Vec<String>, String> {
+        let result = self
+            .client
+            .spreadsheets()
+            .values_get(sheet_id, range)
+            .doit()
+            .await;
+
+        return match result {
+            Err(e) => match e {
+                Error::Failure(res) => Err(read_response_body(res).await.unwrap()),
+                // The Error enum provides details about what exactly> happened.
+                // You can also just use its `Debug`, `Display` or `Error` traits
+                Error::HttpError(_)
+                | Error::Io(_)
+                | Error::MissingAPIKey
+                | Error::MissingToken(_)
+                | Error::Cancelled
+                | Error::UploadSizeLimitExceeded(_, _)
+                | Error::BadRequest(_)
+                | Error::FieldClash(_)
+                | Error::JsonDecodeError(_, _) => Err(format!("{:?}", e)),
+            },
+            // we need to unwrap this 2d array properly here.
+            Ok(vr) => Ok(vr
+                .1
+                .values
+                .unwrap()
+                .into_iter()
+                .map(|v| v[0].clone())
+                .collect()),
+        };
+    }
 }
 
 // read_response_body

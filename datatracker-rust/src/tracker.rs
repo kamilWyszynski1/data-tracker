@@ -1,6 +1,7 @@
 use crate::wrap::API;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
+use std::time::Duration;
 use std::vec::Vec;
 use uuid;
 
@@ -16,13 +17,16 @@ pub enum Direction {
     Vertical,   // data will be written in columns.
     Horizontal, // data will be written in rows.
 }
+#[derive(Clone, Debug, Copy, PartialEq)]
+// TimestampPosition indicates position of timestamp in the data.
+pub enum TimestampPosition {
+    None, // timestamp will not be written.
+    Before,
+    After,
+}
 
 // CallbackFn is a type wrap for callback function.
 type CallbackFn = fn(Result<(), String>) -> ();
-
-#[derive(Clone)]
-// Callback is a type wrap for a function that will be called when data is written.
-pub struct Callback(CallbackFn);
 
 #[derive(Clone)]
 // TrackingTask holds information about tracking task.
@@ -31,12 +35,16 @@ pub struct TrackingTask {
     name: Option<String>,        // task name.
     description: Option<String>, // task description.
 
-    get_data_fn: GetDataFn, // function that returns data to be written.
-    spreadsheet_id: String, // spreadsheet where data will be written.
-    // sheet is a exact sheet of spreadsheet. Default is empty, first sheet.
-    sheet: String,
+    get_data_fn: GetDataFn,    // function that returns data to be written.
+    spreadsheet_id: String,    // spreadsheet where data will be written.
+    starting_position: String, // starting position of data in the spreadsheet. A1 notation.
+    sheet: String,             // exact sheet of spreadsheet. Default is empty, first sheet.
     direction: Direction,
-    callbacks: Option<Vec<Callback>>,
+    interval: Duration,   // interval between data writes.
+    with_timestamp: bool, // whether to write timestamp.
+    timestamp_position: TimestampPosition,
+
+    callbacks: Option<Vec<CallbackFn>>,
 }
 
 unsafe impl Send for TrackingTask {}
@@ -46,9 +54,16 @@ impl TrackingTask {
     pub fn new(
         spreadsheet_id: String,
         sheet: String,
+        starting_position: String,
         direction: Direction,
         get_data_fn: GetDataFn,
+        interval: Duration,
     ) -> TrackingTask {
+        assert_ne!(spreadsheet_id, "", "spreadsheet_id cannot be empty");
+        assert!(
+            starting_position.len() >= 2,
+            "starting_position must be at least 2 characters long."
+        );
         TrackingTask {
             id: uuid::Uuid::new_v4(),
             name: None,
@@ -56,8 +71,12 @@ impl TrackingTask {
             get_data_fn,
             spreadsheet_id,
             sheet,
+            starting_position,
             direction,
+            interval,
             callbacks: None,
+            with_timestamp: false,
+            timestamp_position: TimestampPosition::None,
         }
     }
 
@@ -78,7 +97,22 @@ impl TrackingTask {
         if self.callbacks.is_none() {
             self.callbacks = Some(Vec::new());
         }
-        self.callbacks.as_mut().unwrap().push(Callback(callback_fn));
+        self.callbacks.as_mut().unwrap().push(callback_fn);
+        self
+    }
+
+    // with_timestmap adds timestamp to data.
+    pub fn with_timestmap(
+        mut self,
+        with_timestamp: bool,
+        position: TimestampPosition,
+    ) -> TrackingTask {
+        self.with_timestamp = with_timestamp;
+        assert!(
+            position != TimestampPosition::None,
+            "Timestamp position cannot be None."
+        );
+        self.timestamp_position = position;
         self
     }
 
@@ -86,7 +120,7 @@ impl TrackingTask {
     pub fn run_callbacks(&self, result: Result<(), String>) {
         if let Some(callbacks) = &self.callbacks {
             for callback in callbacks {
-                callback.0(result.clone());
+                callback(result.clone());
             }
         }
     }
@@ -111,7 +145,10 @@ pub struct Tracker<A: 'static + API + Sync + Send + Clone> {
     tasks: Vec<TrackingTask>,
 }
 
-impl<A: 'static + API + Sync + Send + Clone> Tracker<A> {
+impl<A> Tracker<A>
+where
+    A: 'static + API + Sync + Send + Clone,
+{
     // creates new Tracker.
     pub fn new(api: A) -> Self {
         Tracker {
@@ -127,15 +164,6 @@ impl<A: 'static + API + Sync + Send + Clone> Tracker<A> {
 
     // runs all tasks.
     pub async fn run(&self) {
-        // for task in &self.tasks {
-        //     let api = Arc::new(self.api.clone());
-        //     let task = Arc::new(task);
-        //     tokio::spawn(run_single_task(api, task));
-        // }
-        // let task = Arc::new(self.tasks.get(0).unwrap().clone());
-        // tokio::spawn(async move { println!("{}", task.get_name()) })
-        //     .await
-        //     .unwrap();
         let mut joins = Vec::new(); // create vector of JoinHandle, we will join them later.
 
         for task in &self.tasks {
@@ -148,9 +176,13 @@ impl<A: 'static + API + Sync + Send + Clone> Tracker<A> {
                         let result = api
                             .as_ref()
                             .write(
-                                create_write_vec(task.as_ref().direction, data),
+                                create_write_vec(task.as_ref().direction, data.clone()),
                                 &task.spreadsheet_id,
-                                &task.sheet,
+                                &create_range(
+                                    &task.starting_position,
+                                    task.direction.clone(),
+                                    data,
+                                ),
                             )
                             .await;
                         task.run_callbacks(result);
@@ -188,6 +220,37 @@ fn create_write_vec(direction: Direction, data: TrackedData) -> Vec<Vec<String>>
     write_vec
 }
 
+// create_range creates range from a starting position and a direction.
+fn create_range(starting_position: &str, direction: Direction, data: TrackedData) -> String {
+    let character = &starting_position[..1];
+    assert!(
+        character.len() == 1,
+        "Starting position must be a single character."
+    );
+    let number = starting_position[1..].parse::<usize>().unwrap();
+    let mut range = String::from(starting_position);
+    match direction {
+        Direction::Vertical => {
+            range.push_str(&format!(":{}{}", character, number + data.len()));
+        }
+        Direction::Horizontal => {
+            range.push_str(&format!(
+                ":{}{}",
+                add_str(character, data.len() as u32),
+                number
+            ));
+        }
+    }
+    range
+}
+
+// add_str increase ASCII code of a character by a number.
+fn add_str(s: &str, increment: u32) -> String {
+    s.chars()
+        .map(|c| std::char::from_u32(c as u32 + increment).unwrap_or(c))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tracker::TrackedData;
@@ -200,9 +263,11 @@ mod tests {
         use crate::tracker::{Direction, TrackingTask};
         let mut tt = TrackingTask::new(
             "".to_string(),
+            "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
             test_get_data_fn,
+            std::time::Duration::from_secs(1),
         );
         tt = tt.with_callback(|res: Result<(), String>| {
             assert_eq!(res.is_ok(), true);
@@ -216,9 +281,11 @@ mod tests {
         use crate::tracker::{Direction, TrackingTask};
         let mut tt = TrackingTask::new(
             "".to_string(),
+            "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
             test_get_data_fn,
+            std::time::Duration::from_secs(1),
         );
         tt = tt.with_name("test".to_string());
         assert!(tt.name.is_some());
@@ -230,9 +297,11 @@ mod tests {
         use crate::tracker::{Direction, TrackingTask};
         let mut tt = TrackingTask::new(
             "".to_string(),
+            "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
             test_get_data_fn,
+            std::time::Duration::from_secs(1),
         );
         tt = tt.with_description("test".to_string());
         assert!(tt.description.is_some());
@@ -264,9 +333,10 @@ mod tests {
     async fn test_run() {
         fn check_cases(v: Vec<Vec<String>>, s: &str, r: &str) {
             let cases = vec![
-                (vec![vec!["test".to_string()]], "spreadsheet1", "A1:B1"),
-                (vec![vec!["test".to_string()]], "spreadsheet2", "C1:D1"),
+                (vec![vec!["test".to_string()]], "spreadsheet1", "A1:A2"),
+                (vec![vec!["test".to_string()]], "spreadsheet2", "A1:B1"),
             ];
+            println!("{:?} {} {}", cases, s, r);
             for (i, c) in cases.iter().enumerate() {
                 if v == c.0 && s == c.1 && r == c.2 {
                     println!("Case {} passed", i);
@@ -285,18 +355,22 @@ mod tests {
         t.add_task(
             TrackingTask::new(
                 "spreadsheet1".to_string(),
-                "A1:B1".to_string(),
+                "".to_string(),
+                "A1".to_string(),
                 Direction::Vertical,
                 test_get_data_fn,
+                std::time::Duration::from_secs(1),
             )
             .with_name("name test".to_string()),
         );
         t.add_task(
             TrackingTask::new(
                 "spreadsheet2".to_string(),
-                "C1:D1".to_string(),
-                Direction::Vertical,
+                "".to_string(),
+                "A1".to_string(),
+                Direction::Horizontal,
                 test_get_data_fn,
+                std::time::Duration::from_secs(1),
             )
             .with_name("name test2".to_string()),
         );
@@ -327,9 +401,11 @@ mod tests {
         t.add_task(
             TrackingTask::new(
                 "spreadsheet1".to_string(),
-                "A1:B1".to_string(),
+                "".to_string(),
+                "A1".to_string(),
                 Direction::Vertical,
                 test_get_data_fn,
+                std::time::Duration::from_secs(1),
             )
             .with_name("name test".to_string())
             .with_callback(callback),

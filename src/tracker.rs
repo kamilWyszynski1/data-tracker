@@ -176,7 +176,7 @@ where
         let mut joins = Vec::new(); // create vector of JoinHandle, we will join them later.
 
         for task in &self.tasks {
-            debug!("Running task {}", task.get_name());
+            println!("Running task {}", task.get_name());
             let task = Arc::new(task.clone());
             let api = Arc::new(self.api.clone());
             joins.push(tokio::task::spawn(
@@ -187,6 +187,7 @@ where
         for join in joins {
             join.await.unwrap();
         }
+        println!("All tasks finished.");
     }
 }
 
@@ -194,7 +195,7 @@ pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
     task: Arc<TrackingTask>,
     api: Arc<A>,
 ) {
-    debug!("Starting task {}", task.get_name());
+    println!("Starting task {}", task.get_name());
 
     let mut counter = 0; // invokations counter. Will not be used if invokations is None.
     let mut timer = tokio::time::interval(task.interval);
@@ -208,11 +209,12 @@ pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
             }
         }
     }
+    println!("Task {} finished.", task.get_name());
 }
 
 // handles single task.
 async fn handle_task<A: 'static + API + Sync + Send + Clone>(task: Arc<TrackingTask>, api: Arc<A>) {
-    debug!("Handling task {}", task.get_name());
+    println!("Handling task {}", task.get_name());
 
     let result = task.get_data();
     match result {
@@ -402,7 +404,7 @@ mod tests {
                 test_get_data_fn,
                 std::time::Duration::from_secs(1),
             )
-            .with_name("name test".to_string())
+            .with_name("TEST1".to_string())
             .with_invokations(1),
         );
         t.add_task(
@@ -414,7 +416,7 @@ mod tests {
                 test_get_data_fn,
                 std::time::Duration::from_secs(1),
             )
-            .with_name("name test2".to_string())
+            .with_name("TEST2".to_string())
             .with_invokations(1),
         );
 
@@ -451,7 +453,7 @@ mod tests {
                 test_get_data_fn,
                 std::time::Duration::from_secs(1),
             )
-            .with_name("name test".to_string())
+            .with_name("TEST3".to_string())
             .with_callback(callback)
             .with_invokations(1),
         );

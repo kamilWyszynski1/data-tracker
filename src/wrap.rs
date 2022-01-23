@@ -14,6 +14,7 @@ pub trait API {
     ) -> Result<(), String>;
 }
 
+#[derive(Clone)]
 // APIWrapper is a implementation of API trait for the Google Sheets API.
 pub struct APIWrapper {
     client: sheets4::Sheets,

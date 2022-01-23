@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use uuid;
 
 // TrackedData is a type wrap for data that is being tracked. It'll be written as string anyway.
-type TrackedData = Vec<String>;
+pub type TrackedData = Vec<String>;
 
 // GetDataFn is a type wrap for a function that returns a TrackedData.
 type GetDataFn = fn() -> Result<TrackedData, String>;
@@ -194,8 +194,16 @@ impl TrackingTask {
 pub struct Tracker<A: 'static + API + Sync + Send + Clone> {
     api: A,
     tasks: Vec<TrackingTask>,
-    receiver: Option<Receiver<TrackingTask>>,
     sender: Option<Sender<TrackingTask>>,
+}
+
+impl<A> Drop for Tracker<A>
+where
+    A: 'static + API + Sync + Send + Clone,
+{
+    fn drop(&mut self) {
+        println!("Tracker is dropped.");
+    }
 }
 
 impl<A> Tracker<A>
@@ -207,7 +215,6 @@ where
         Tracker {
             api,
             tasks: Vec::new(),
-            receiver: None,
             sender: None,
         }
     }
@@ -219,17 +226,21 @@ where
         self.sender.as_ref().unwrap().send(task).await.is_ok()
     }
 
-    pub async fn listen(&mut self) {
-        assert!(self.receiver.is_some(), "Receiver is None.");
+    pub async fn listen(&mut self, mut rx: Receiver<TrackingTask>) {
         println!("Listening for tasks.");
-        loop {
-            tokio::select! {
-                Some(task) = self.receiver.as_mut().unwrap().recv() => {
-                    let api = Arc::new(self.api.clone());
-                    tokio::task::spawn(async move {task.schedule(api).await});
+        let api = Arc::new(self.api.clone());
+
+        tokio::task::spawn(async move {
+            loop {
+                let api = api.clone();
+
+                tokio::select! {
+                    Some(task) = rx.recv() => {
+                        tokio::task::spawn(async move {task.schedule(api).await});
+                    }
                 }
             }
-        }
+        });
     }
 
     // adds new task to Tracker.
@@ -259,9 +270,9 @@ where
     pub async fn start(&mut self) {
         println!("Starting Tracker.");
         let (tx, rx) = channel::<TrackingTask>(10);
-        self.receiver = Some(rx);
         self.sender = Some(tx);
         println!("Tracker started.");
+        self.listen(rx).await;
     }
 }
 
@@ -583,7 +594,6 @@ mod tests {
             fail_msg: "".to_string(),
         });
         t.start().await;
-        t.listen();
         t.send_task(
             TrackingTask::new(
                 "spreadsheet4".to_string(),

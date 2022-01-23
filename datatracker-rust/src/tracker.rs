@@ -1,5 +1,6 @@
 use crate::wrap::API;
 use std::marker::{Send, Sync};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
@@ -169,33 +170,50 @@ where
         for task in &self.tasks {
             let task = Arc::new(task.clone());
             let api = Arc::new(self.api.clone());
-            joins.push(tokio::spawn(async move {
-                let result = task.get_data();
-                match result {
-                    Ok(data) => {
-                        let result = api
-                            .as_ref()
-                            .write(
-                                create_write_vec(task.as_ref().direction, data.clone()),
-                                &task.spreadsheet_id,
-                                &create_range(
-                                    &task.starting_position,
-                                    task.direction.clone(),
-                                    data,
-                                ),
-                            )
-                            .await;
-                        task.run_callbacks(result);
-                    }
-                    Err(e) => {
-                        task.run_callbacks(Err(e));
-                    }
-                }
-            }));
+            // (tokio::spawn(self.schedule_task(task)));
+            joins.push(tokio::task::spawn(
+                async move { schedule_task(task, api).await },
+            ));
         }
 
         for join in joins {
             join.await.unwrap();
+        }
+    }
+}
+
+pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
+    task: Arc<TrackingTask>,
+    api: Arc<A>,
+) {
+    let mut timer = tokio::time::interval(task.interval);
+    loop {
+        timer.tick().await;
+        handle_task(task.clone(), api.clone()).await;
+    }
+}
+
+// handles single task.
+async fn handle_task<A: 'static + API + Sync + Send + Clone>(task: Arc<TrackingTask>, api: Arc<A>) {
+    let result = task.get_data();
+    match result {
+        Ok(data) => {
+            let result = api
+                .write(
+                    create_write_vec(task.direction, data.clone()),
+                    &task.spreadsheet_id,
+                    &create_range(
+                        &task.starting_position,
+                        &task.sheet,
+                        task.direction.clone(),
+                        data,
+                    ),
+                )
+                .await;
+            task.run_callbacks(result);
+        }
+        Err(e) => {
+            task.run_callbacks(Err(e));
         }
     }
 }
@@ -221,7 +239,12 @@ fn create_write_vec(direction: Direction, data: TrackedData) -> Vec<Vec<String>>
 }
 
 // create_range creates range from a starting position and a direction.
-fn create_range(starting_position: &str, direction: Direction, data: TrackedData) -> String {
+fn create_range(
+    starting_position: &str,
+    sheet: &str,
+    direction: Direction,
+    data: TrackedData,
+) -> String {
     let character = &starting_position[..1];
     assert!(
         character.len() == 1,
@@ -240,6 +263,9 @@ fn create_range(starting_position: &str, direction: Direction, data: TrackedData
                 number
             ));
         }
+    }
+    if sheet != "" {
+        range = format!("{}!{}", sheet, range);
     }
     range
 }

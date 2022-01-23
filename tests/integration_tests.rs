@@ -4,6 +4,7 @@ extern crate datatracker_rust;
 pub use datatracker_rust::wrap::{APIWrapper, API};
 
 #[tokio::test]
+#[ignore]
 async fn test_api_wrapper() {
     let spreadsheet_id = env::var("SPREADSHEET_ID");
     assert_eq!(spreadsheet_id.is_ok(), true);

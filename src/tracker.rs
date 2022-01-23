@@ -44,6 +44,7 @@ pub struct TrackingTask {
     interval: Duration,   // interval between data writes.
     with_timestamp: bool, // whether to write timestamp.
     timestamp_position: TimestampPosition,
+    invokations: Option<i32>, // number of invokations.
 
     callbacks: Option<Vec<CallbackFn>>,
 }
@@ -78,6 +79,7 @@ impl TrackingTask {
             callbacks: None,
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
+            invokations: None,
         }
     }
 
@@ -114,6 +116,12 @@ impl TrackingTask {
             "Timestamp position cannot be None."
         );
         self.timestamp_position = position;
+        self
+    }
+
+    // with_invokations sets number of invokations.
+    pub fn with_invokations(mut self, invokations: i32) -> TrackingTask {
+        self.invokations = Some(invokations);
         self
     }
 
@@ -168,9 +176,9 @@ where
         let mut joins = Vec::new(); // create vector of JoinHandle, we will join them later.
 
         for task in &self.tasks {
+            debug!("Running task {}", task.get_name());
             let task = Arc::new(task.clone());
             let api = Arc::new(self.api.clone());
-            // (tokio::spawn(self.schedule_task(task)));
             joins.push(tokio::task::spawn(
                 async move { schedule_task(task, api).await },
             ));
@@ -186,15 +194,26 @@ pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
     task: Arc<TrackingTask>,
     api: Arc<A>,
 ) {
+    debug!("Starting task {}", task.get_name());
+
+    let mut counter = 0; // invokations counter. Will not be used if invokations is None.
     let mut timer = tokio::time::interval(task.interval);
     loop {
         timer.tick().await;
         handle_task(task.clone(), api.clone()).await;
+        if let Some(invokations) = task.invokations {
+            counter += 1;
+            if counter >= invokations {
+                break;
+            }
+        }
     }
 }
 
 // handles single task.
 async fn handle_task<A: 'static + API + Sync + Send + Clone>(task: Arc<TrackingTask>, api: Arc<A>) {
+    debug!("Handling task {}", task.get_name());
+
     let result = task.get_data();
     match result {
         Ok(data) => {
@@ -202,12 +221,7 @@ async fn handle_task<A: 'static + API + Sync + Send + Clone>(task: Arc<TrackingT
                 .write(
                     create_write_vec(task.direction, data.clone()),
                     &task.spreadsheet_id,
-                    &create_range(
-                        &task.starting_position,
-                        &task.sheet,
-                        task.direction.clone(),
-                        data,
-                    ),
+                    &create_range(&task.starting_position, &task.sheet, task.direction, data),
                 )
                 .await;
             task.run_callbacks(result);
@@ -288,7 +302,7 @@ mod tests {
     fn callback_test() {
         use crate::tracker::{Direction, TrackingTask};
         let mut tt = TrackingTask::new(
-            "".to_string(),
+            "speadsheet_id".to_string(),
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
@@ -306,7 +320,7 @@ mod tests {
     fn task_with_name() {
         use crate::tracker::{Direction, TrackingTask};
         let mut tt = TrackingTask::new(
-            "".to_string(),
+            "speadsheet_id".to_string(),
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
@@ -322,7 +336,7 @@ mod tests {
     fn task_with_description() {
         use crate::tracker::{Direction, TrackingTask};
         let mut tt = TrackingTask::new(
-            "".to_string(),
+            "speadsheet_id".to_string(),
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
@@ -356,6 +370,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(30000)] // 30 sec timeout.
     async fn test_run() {
         fn check_cases(v: Vec<Vec<String>>, s: &str, r: &str) {
             let cases = vec![
@@ -387,7 +402,8 @@ mod tests {
                 test_get_data_fn,
                 std::time::Duration::from_secs(1),
             )
-            .with_name("name test".to_string()),
+            .with_name("name test".to_string())
+            .with_invokations(1),
         );
         t.add_task(
             TrackingTask::new(
@@ -398,13 +414,15 @@ mod tests {
                 test_get_data_fn,
                 std::time::Duration::from_secs(1),
             )
-            .with_name("name test2".to_string()),
+            .with_name("name test2".to_string())
+            .with_invokations(1),
         );
 
         t.run().await;
     }
 
     #[tokio::test]
+    #[timeout(30000)] // 30 sec timeout.
     async fn test_run_callback() {
         fn check_cases(_: Vec<Vec<String>>, _: &str, _: &str) {}
         fn callback(res: Result<(), String>) {
@@ -434,7 +452,8 @@ mod tests {
                 std::time::Duration::from_secs(1),
             )
             .with_name("name test".to_string())
-            .with_callback(callback),
+            .with_callback(callback)
+            .with_invokations(1),
         );
         t.run().await;
     }

@@ -1,3 +1,4 @@
+pub mod persistance;
 pub mod task;
 pub mod tracker;
 pub mod wrap;

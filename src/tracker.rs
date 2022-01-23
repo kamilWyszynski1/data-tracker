@@ -1,11 +1,11 @@
+use crate::persistance::{InMemoryPersistance, Persistance};
 use crate::wrap::API;
 use std::marker::{Send, Sync};
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use uuid;
+use uuid::Uuid;
 
 // TrackedData is a type wrap for data that is being tracked. It'll be written as string anyway.
 pub type TrackedData = Vec<String>;
@@ -33,7 +33,7 @@ type CallbackFn = fn(Result<(), String>) -> ();
 #[derive(Clone, Debug)]
 // TrackingTask holds information about tracking task.
 pub struct TrackingTask {
-    id: uuid::Uuid,              // task id.
+    id: Uuid,                    // task id.
     name: Option<String>,        // task name.
     description: Option<String>, // task description.
 
@@ -68,7 +68,7 @@ impl TrackingTask {
             "starting_position must be at least 2 characters long."
         );
         TrackingTask {
-            id: uuid::Uuid::new_v4(),
+            id: Uuid::new_v4(),
             name: None,
             description: None,
             get_data_fn,
@@ -146,76 +146,50 @@ impl TrackingTask {
             "No name"
         }
     }
-
-    // schedules task to be run.
-    pub async fn schedule<A: 'static + API + Sync + Send + Clone>(&self, api: Arc<A>) {
-        println!("Starting task {}", self.get_name());
-
-        let mut counter = 0; // invokations counter. Will not be used if invokations is None.
-        let mut timer = tokio::time::interval(self.interval);
-        loop {
-            timer.tick().await;
-            self.handle(api.clone()).await;
-            if let Some(invokations) = self.invokations {
-                counter += 1;
-                if counter >= invokations {
-                    break;
-                }
-            }
-        }
-        println!("Task {} finished.", self.get_name());
-    }
-
-    // handles task.
-    async fn handle<A: 'static + API + Sync + Send + Clone>(&self, api: Arc<A>) {
-        println!("Handling task {}", self.get_name());
-
-        let result = self.get_data();
-        match result {
-            Ok(data) => {
-                let result = api
-                    .write(
-                        create_write_vec(self.direction, data.clone()),
-                        &self.spreadsheet_id,
-                        &create_range(&self.starting_position, &self.sheet, self.direction, data),
-                    )
-                    .await;
-                self.run_callbacks(result);
-            }
-            Err(e) => {
-                self.run_callbacks(Err(e));
-            }
-        }
-    }
 }
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
-pub struct Tracker<A: 'static + API + Sync + Send + Clone> {
+pub struct Tracker<A, P>
+where
+    A: 'static + API + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, String> + Sync + Send + Clone,
+{
     api: A,
+    persistance: P,
     tasks: Vec<TrackingTask>,
     sender: Option<Sender<TrackingTask>>,
 }
 
-impl<A> Drop for Tracker<A>
+unsafe impl<A, P> Send for Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, String> + Sync + Send + Clone,
+{
+}
+
+impl<A, P> Drop for Tracker<A, P>
+where
+    A: 'static + API + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, String> + Sync + Send + Clone,
 {
     fn drop(&mut self) {
         println!("Tracker is dropped.");
     }
 }
 
-impl<A> Tracker<A>
+impl<A, P> Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
+    P: Persistance<Uuid, String> + Sync + Send + Clone,
 {
     // creates new Tracker.
-    pub fn new(api: A) -> Self {
+    pub fn new(api: A, persistance: P) -> Self {
         Tracker {
             api,
             tasks: Vec::new(),
             sender: None,
+            persistance,
         }
     }
 
@@ -229,6 +203,7 @@ where
     pub async fn listen(&mut self, mut rx: Receiver<TrackingTask>) {
         println!("Listening for tasks.");
         let api = Arc::new(self.api.clone());
+        let persistance = Arc::new(self.persistance.clone());
 
         tokio::task::spawn(async move {
             loop {
@@ -236,7 +211,8 @@ where
 
                 tokio::select! {
                     Some(task) = rx.recv() => {
-                        tokio::task::spawn(async move {task.schedule(api).await});
+                        let task = Arc::new(task);
+                        tokio::task::spawn(async move {schedule_task(task, api).await});
                     }
                 }
             }
@@ -249,15 +225,16 @@ where
     }
 
     // runs all tasks.
-    pub async fn run(&self) {
+    pub async fn run(&'static self) {
         let mut joins = Vec::new(); // create vector of JoinHandle, we will join them later.
 
         for task in &self.tasks {
             println!("Running task {}", task.get_name());
             let task = Arc::new(task.clone());
             let api = Arc::new(self.api.clone());
+            let arc = Arc::new(self);
             joins.push(tokio::task::spawn(async move {
-                task.schedule(api).await;
+                arc.schedule_task(task).await;
             }));
         }
 
@@ -274,50 +251,90 @@ where
         println!("Tracker started.");
         self.listen(rx).await;
     }
+
+    pub async fn schedule_task(self: Arc<&Self>, task: Arc<TrackingTask>) {
+        println!("Starting task {}", task.get_name());
+        let mut counter = 0; // invokations counter. Will not be used if invokations is None.
+        let mut timer = tokio::time::interval(task.interval);
+        loop {
+            timer.tick().await;
+            self.handle_task(task.clone()).await;
+            if let Some(invokations) = task.invokations {
+                counter += 1;
+                if counter >= invokations {
+                    break;
+                }
+            }
+        }
+        println!("Task {} finished.", task.get_name());
+    }
+
+    // handles single task.
+    async fn handle_task(self: &Arc<&Self>, task: Arc<TrackingTask>) {
+        println!("Handling task {}", task.get_name());
+
+        let result = task.get_data();
+        match result {
+            Ok(data) => {
+                let result = self
+                    .api
+                    .write(
+                        create_write_vec(task.direction, data.clone()),
+                        &task.spreadsheet_id,
+                        &create_range(&task.starting_position, &task.sheet, task.direction, data),
+                    )
+                    .await;
+                task.run_callbacks(result);
+            }
+            Err(e) => {
+                task.run_callbacks(Err(e));
+            }
+        }
+    }
 }
 
-// pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
-//     task: Arc<TrackingTask>,
-//     api: Arc<A>,
-// ) {
-//     println!("Starting task {}", task.get_name());
+pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
+    task: Arc<TrackingTask>,
+    api: Arc<A>,
+) {
+    println!("Starting task {}", task.get_name());
 
-//     let mut counter = 0; // invokations counter. Will not be used if invokations is None.
-//     let mut timer = tokio::time::interval(task.interval);
-//     loop {
-//         timer.tick().await;
-//         handle_task(task.clone(), api.clone()).await;
-//         if let Some(invokations) = task.invokations {
-//             counter += 1;
-//             if counter >= invokations {
-//                 break;
-//             }
-//         }
-//     }
-//     println!("Task {} finished.", task.get_name());
-// }
+    let mut counter = 0; // invokations counter. Will not be used if invokations is None.
+    let mut timer = tokio::time::interval(task.interval);
+    loop {
+        timer.tick().await;
+        handle_task(task.clone(), api.clone()).await;
+        if let Some(invokations) = task.invokations {
+            counter += 1;
+            if counter >= invokations {
+                break;
+            }
+        }
+    }
+    println!("Task {} finished.", task.get_name());
+}
 
-// // handles single task.
-// async fn handle_task<A: 'static + API + Sync + Send + Clone>(task: Arc<TrackingTask>, api: Arc<A>) {
-//     println!("Handling task {}", task.get_name());
+// handles single task.
+async fn handle_task<A: 'static + API + Sync + Send + Clone>(task: Arc<TrackingTask>, api: Arc<A>) {
+    println!("Handling task {}", task.get_name());
 
-//     let result = task.get_data();
-//     match result {
-//         Ok(data) => {
-//             let result = api
-//                 .write(
-//                     create_write_vec(task.direction, data.clone()),
-//                     &task.spreadsheet_id,
-//                     &create_range(&task.starting_position, &task.sheet, task.direction, data),
-//                 )
-//                 .await;
-//             task.run_callbacks(result);
-//         }
-//         Err(e) => {
-//             task.run_callbacks(Err(e));
-//         }
-//     }
-// }
+    let result = task.get_data();
+    match result {
+        Ok(data) => {
+            let result = api
+                .write(
+                    create_write_vec(task.direction, data.clone()),
+                    &task.spreadsheet_id,
+                    &create_range(&task.starting_position, &task.sheet, task.direction, data),
+                )
+                .await;
+            task.run_callbacks(result);
+        }
+        Err(e) => {
+            task.run_callbacks(Err(e));
+        }
+    }
+}
 
 // create_write_vec creates a vector of WriteData from a TrackedData.
 fn create_write_vec(direction: Direction, data: TrackedData) -> Vec<Vec<String>> {
@@ -465,6 +482,20 @@ mod tests {
         }
     }
 
+    use crate::persistance::Persistance;
+    use uuid::Uuid;
+
+    #[derive(Clone)]
+    struct TestPersistance {}
+    impl<K, V> Persistance<K, V> for TestPersistance {
+        fn write(&mut self, key: K, value: V) -> Result<(), String> {
+            Ok(())
+        }
+        fn read(&self, key: K) -> Option<&V> {
+            None
+        }
+    }
+
     #[tokio::test]
     #[timeout(30000)] // 30 sec timeout.
     async fn test_run() {
@@ -484,11 +515,14 @@ mod tests {
         }
 
         use crate::tracker::{Direction, Tracker, TrackingTask};
-        let mut t = Tracker::new(TestAPI {
-            check: check_cases,
-            fail: false,
-            fail_msg: "".to_string(),
-        });
+        let mut t = Tracker::new(
+            TestAPI {
+                check: check_cases,
+                fail: false,
+                fail_msg: "".to_string(),
+            },
+            TestPersistance {},
+        );
         t.add_task(
             TrackingTask::new(
                 "spreadsheet1".to_string(),
@@ -532,11 +566,14 @@ mod tests {
         }
 
         use crate::tracker::{Direction, Tracker, TrackingTask};
-        let mut t = Tracker::new(TestAPI {
-            check: check_cases,
-            fail: true,
-            fail_msg: "fail".to_string(),
-        });
+        let mut t = Tracker::new(
+            TestAPI {
+                check: check_cases,
+                fail: true,
+                fail_msg: "fail".to_string(),
+            },
+            TestPersistance {},
+        );
 
         t.add_task(
             TrackingTask::new(
@@ -574,11 +611,14 @@ mod tests {
             panic!("failed")
         }
 
-        let t = Tracker::new(TestAPI {
-            check: check_cases,
-            fail: false,
-            fail_msg: "".to_string(),
-        });
+        let t = Tracker::new(
+            TestAPI {
+                check: check_cases,
+                fail: false,
+                fail_msg: "".to_string(),
+            },
+            TestPersistance {},
+        );
         fn callback(res: Result<(), String>) {}
 
         let c = |tx: oneshot::Sender<bool>| -> fn(Result<(), String>) {
@@ -588,11 +628,14 @@ mod tests {
         };
 
         use crate::tracker::{Direction, Tracker, TrackingTask};
-        let mut t = Tracker::new(TestAPI {
-            check: check_cases,
-            fail: false,
-            fail_msg: "".to_string(),
-        });
+        let mut t = Tracker::new(
+            TestAPI {
+                check: check_cases,
+                fail: false,
+                fail_msg: "".to_string(),
+            },
+            TestPersistance {},
+        );
         t.start().await;
         t.send_task(
             TrackingTask::new(

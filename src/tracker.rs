@@ -225,16 +225,15 @@ where
     }
 
     // runs all tasks.
-    pub async fn run(&'static self) {
+    pub async fn run(&self) {
         let mut joins = Vec::new(); // create vector of JoinHandle, we will join them later.
 
         for task in &self.tasks {
             println!("Running task {}", task.get_name());
             let task = Arc::new(task.clone());
             let api = Arc::new(self.api.clone());
-            let arc = Arc::new(self);
             joins.push(tokio::task::spawn(async move {
-                arc.schedule_task(task).await;
+                schedule_task(task, api).await;
             }));
         }
 
@@ -250,46 +249,6 @@ where
         self.sender = Some(tx);
         println!("Tracker started.");
         self.listen(rx).await;
-    }
-
-    pub async fn schedule_task(self: Arc<&Self>, task: Arc<TrackingTask>) {
-        println!("Starting task {}", task.get_name());
-        let mut counter = 0; // invokations counter. Will not be used if invokations is None.
-        let mut timer = tokio::time::interval(task.interval);
-        loop {
-            timer.tick().await;
-            self.handle_task(task.clone()).await;
-            if let Some(invokations) = task.invokations {
-                counter += 1;
-                if counter >= invokations {
-                    break;
-                }
-            }
-        }
-        println!("Task {} finished.", task.get_name());
-    }
-
-    // handles single task.
-    async fn handle_task(self: &Arc<&Self>, task: Arc<TrackingTask>) {
-        println!("Handling task {}", task.get_name());
-
-        let result = task.get_data();
-        match result {
-            Ok(data) => {
-                let result = self
-                    .api
-                    .write(
-                        create_write_vec(task.direction, data.clone()),
-                        &task.spreadsheet_id,
-                        &create_range(&task.starting_position, &task.sheet, task.direction, data),
-                    )
-                    .await;
-                task.run_callbacks(result);
-            }
-            Err(e) => {
-                task.run_callbacks(Err(e));
-            }
-        }
     }
 }
 
@@ -488,10 +447,10 @@ mod tests {
     #[derive(Clone)]
     struct TestPersistance {}
     impl<K, V> Persistance<K, V> for TestPersistance {
-        fn write(&mut self, key: K, value: V) -> Result<(), String> {
+        fn write(&mut self, _: K, _: V) -> Result<(), String> {
             Ok(())
         }
-        fn read(&self, key: K) -> Option<&V> {
+        fn read(&self, _: K) -> Option<&V> {
             None
         }
     }

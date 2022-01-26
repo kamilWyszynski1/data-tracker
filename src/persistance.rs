@@ -1,8 +1,6 @@
-use std::borrow::Borrow;
 use std::cmp::Eq;
 use std::collections::HashMap;
 use std::hash::Hash;
-use uuid::Uuid;
 
 // Persistance is a trait for storing info about the current state of tracked data.
 pub trait Persistance<K, V> {
@@ -21,6 +19,13 @@ impl<K, V> InMemoryPersistance<K, V> {
         InMemoryPersistance {
             data: HashMap::new(),
         }
+    }
+}
+
+// default implementaion for InMemoryPersistance.
+impl<K, V> Default for InMemoryPersistance<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

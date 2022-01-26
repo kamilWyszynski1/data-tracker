@@ -7,9 +7,9 @@ pub use datatracker_rust::wrap::{APIWrapper, API};
 #[ignore]
 async fn test_api_wrapper() {
     let spreadsheet_id = env::var("SPREADSHEET_ID");
-    assert_eq!(spreadsheet_id.is_ok(), true);
+    assert!(spreadsheet_id.is_ok());
     let spreadsheet_id = spreadsheet_id.unwrap();
-    assert_eq!(spreadsheet_id.is_empty(), false);
+    assert!(spreadsheet_id.is_empty());
     let api = APIWrapper::new_with_init().await;
     let res = api
         .write(

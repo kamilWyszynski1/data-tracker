@@ -1,10 +1,11 @@
-use crate::persistance::{InMemoryPersistance, Persistance};
+use crate::persistance::Persistance;
 use crate::wrap::API;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 // TrackedData is a type wrap for data that is being tracked. It'll be written as string anyway.
@@ -153,7 +154,7 @@ impl TrackingTask {
 pub struct Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, String> + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
 {
     api: A,
     persistance: P,
@@ -164,14 +165,14 @@ where
 unsafe impl<A, P> Send for Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, String> + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
 {
 }
 
 impl<A, P> Drop for Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, String> + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
 {
     fn drop(&mut self) {
         println!("Tracker is dropped.");
@@ -181,7 +182,7 @@ where
 impl<A, P> Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: Persistance<Uuid, String> + Sync + Send + Clone,
+    P: Persistance<Uuid, u32> + Sync + Send + Clone,
 {
     // creates new Tracker.
     pub fn new(api: A, persistance: P) -> Self {
@@ -203,16 +204,18 @@ where
     pub async fn listen(&mut self, mut rx: Receiver<TrackingTask>) {
         println!("Listening for tasks.");
         let api = Arc::new(self.api.clone());
-        let persistance = Arc::new(self.persistance.clone());
+        let persistance = Arc::new(Mutex::new(self.persistance.clone()));
 
         tokio::task::spawn(async move {
+            let api = Arc::clone(&api);
+            let persistance = Arc::clone(&persistance);
             loop {
-                let api = api.clone();
-
                 tokio::select! {
                     Some(task) = rx.recv() => {
                         let task = Arc::new(task);
-                        tokio::task::spawn(async move {schedule_task(task, api).await});
+                        let api = Arc::clone(&api);
+                        let persistance = Arc::clone(&persistance);
+                        tokio::task::spawn(async move {schedule_task(task, api, persistance).await});
                     }
                 }
             }
@@ -232,8 +235,9 @@ where
             println!("Running task {}", task.get_name());
             let task = Arc::new(task.clone());
             let api = Arc::new(self.api.clone());
+            let persistance = Arc::new(Mutex::new(self.persistance.clone()));
             joins.push(tokio::task::spawn(async move {
-                schedule_task(task, api).await;
+                schedule_task(task, api, persistance).await;
             }));
         }
 
@@ -252,17 +256,18 @@ where
     }
 }
 
-pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
-    task: Arc<TrackingTask>,
-    api: Arc<A>,
-) {
+pub async fn schedule_task<A, P>(task: Arc<TrackingTask>, api: Arc<A>, persistance: Arc<Mutex<P>>)
+where
+    A: 'static + API + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
+{
     println!("Starting task {}", task.get_name());
 
     let mut counter = 0; // invokations counter. Will not be used if invokations is None.
     let mut timer = tokio::time::interval(task.interval);
     loop {
         timer.tick().await;
-        handle_task(task.clone(), api.clone()).await;
+        handle_task(&task, &api, &persistance).await;
         if let Some(invokations) = task.invokations {
             counter += 1;
             if counter >= invokations {
@@ -274,20 +279,38 @@ pub async fn schedule_task<A: 'static + API + Sync + Send + Clone>(
 }
 
 // handles single task.
-async fn handle_task<A: 'static + API + Sync + Send + Clone>(task: Arc<TrackingTask>, api: Arc<A>) {
+async fn handle_task<A, P>(task: &Arc<TrackingTask>, api: &Arc<A>, persistance: &Arc<Mutex<P>>)
+where
+    A: 'static + API + Sync + Send + Clone,
+    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
+{
     println!("Handling task {}", task.get_name());
 
     let result = task.get_data();
     match result {
         Ok(data) => {
+            let persistance = persistance.lock().await;
+
+            let last_place = persistance.read(task.id).unwrap_or(&0);
+            let data_len = data.len() as u32;
+
             let result = api
                 .write(
                     create_write_vec(task.direction, data.clone()),
                     &task.spreadsheet_id,
-                    &create_range(&task.starting_position, &task.sheet, task.direction, data),
+                    &create_range(
+                        last_place,
+                        &task.starting_position,
+                        &task.sheet,
+                        task.direction,
+                        data_len,
+                    ),
                 )
                 .await;
             task.run_callbacks(result);
+
+            let mut persistance = persistance.clone();
+            persistance.write(task.id, last_place + data_len).unwrap();
         }
         Err(e) => {
             task.run_callbacks(Err(e));
@@ -317,31 +340,32 @@ fn create_write_vec(direction: Direction, data: TrackedData) -> Vec<Vec<String>>
 
 // create_range creates range from a starting position and a direction.
 fn create_range(
+    offset: &u32, // last previously written place.
     starting_position: &str,
     sheet: &str,
     direction: Direction,
-    data: TrackedData,
+    data_len: u32,
 ) -> String {
     let character = &starting_position[..1];
     assert!(
         character.len() == 1,
         "Starting position must be a single character."
     );
-    let number = starting_position[1..].parse::<usize>().unwrap();
+    let number = starting_position[1..].parse::<u32>().unwrap();
     let mut range = String::from(starting_position);
     match direction {
         Direction::Vertical => {
-            range.push_str(&format!(":{}{}", character, number + data.len()));
+            range.push_str(&format!(":{}{}", character, offset + number + data_len));
         }
         Direction::Horizontal => {
             range.push_str(&format!(
                 ":{}{}",
-                add_str(character, data.len() as u32),
+                add_str(character, offset + data_len),
                 number
             ));
         }
     }
-    if sheet != "" {
+    if !sheet.is_empty() {
         range = format!("{}!{}", sheet, range);
     }
     range
@@ -373,7 +397,7 @@ mod tests {
             std::time::Duration::from_secs(1),
         );
         tt = tt.with_callback(|res: Result<(), String>| {
-            assert_eq!(res.is_ok(), true);
+            assert!(res.is_ok());
         });
         assert!(tt.callbacks.is_some());
         tt.run_callbacks(Ok(()));
@@ -436,13 +460,12 @@ mod tests {
 
     #[async_trait]
     impl API for MockAPI {
-        async fn write(&self, v: Vec<Vec<String>>, s: &str, r: &str) -> Result<(), String> {
+        async fn write(&self, _: Vec<Vec<String>>, _: &str, _: &str) -> Result<(), String> {
             Ok(())
         }
     }
 
     use crate::persistance::Persistance;
-    use uuid::Uuid;
 
     #[derive(Clone)]
     struct TestPersistance {}
@@ -515,7 +538,7 @@ mod tests {
     async fn test_run_callback() {
         fn check_cases(_: Vec<Vec<String>>, _: &str, _: &str) {}
         fn callback(res: Result<(), String>) {
-            assert_eq!(res.is_err(), true);
+            assert!(res.is_err());
             match res {
                 Err(e) => {
                     assert_eq!(e, "fail".to_string());
@@ -570,15 +593,7 @@ mod tests {
             panic!("failed")
         }
 
-        let t = Tracker::new(
-            TestAPI {
-                check: check_cases,
-                fail: false,
-                fail_msg: "".to_string(),
-            },
-            TestPersistance {},
-        );
-        fn callback(res: Result<(), String>) {}
+        fn callback(_: Result<(), String>) {}
 
         let c = |tx: oneshot::Sender<bool>| -> fn(Result<(), String>) {
             println!("callback");

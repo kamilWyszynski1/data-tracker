@@ -31,8 +31,10 @@ impl API for APIWrapper {
         sheet_id: &str,
         range: &str,
     ) -> Result<(), String> {
-        let mut req = ValueRange::default();
-        req.values = Some(values);
+        let req = ValueRange {
+            values: Some(values),
+            ..Default::default()
+        };
 
         let result = self
             .client

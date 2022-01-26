@@ -154,7 +154,7 @@ impl TrackingTask {
 pub struct Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
+    P: 'static + Persistance + Sync + Send + Clone,
 {
     api: A,
     persistance: P,
@@ -165,14 +165,14 @@ where
 unsafe impl<A, P> Send for Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
+    P: 'static + Persistance + Sync + Send + Clone,
 {
 }
 
 impl<A, P> Drop for Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
+    P: 'static + Persistance + Sync + Send + Clone,
 {
     fn drop(&mut self) {
         println!("Tracker is dropped.");
@@ -182,7 +182,7 @@ where
 impl<A, P> Tracker<A, P>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: Persistance<Uuid, u32> + Sync + Send + Clone,
+    P: Persistance + Sync + Send + Clone,
 {
     // creates new Tracker.
     pub fn new(api: A, persistance: P) -> Self {
@@ -259,7 +259,7 @@ where
 pub async fn schedule_task<A, P>(task: Arc<TrackingTask>, api: Arc<A>, persistance: Arc<Mutex<P>>)
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
+    P: 'static + Persistance + Sync + Send + Clone,
 {
     println!("Starting task {}", task.get_name());
 
@@ -282,7 +282,7 @@ where
 async fn handle_task<A, P>(task: &Arc<TrackingTask>, api: &Arc<A>, persistance: &Arc<Mutex<P>>)
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance<Uuid, u32> + Sync + Send + Clone,
+    P: 'static + Persistance + Sync + Send + Clone,
 {
     println!("Handling task {}", task.get_name());
 
@@ -466,14 +466,15 @@ mod tests {
     }
 
     use crate::persistance::Persistance;
+    use uuid::Uuid;
 
     #[derive(Clone)]
     struct TestPersistance {}
-    impl<K, V> Persistance<K, V> for TestPersistance {
-        fn write(&mut self, _: K, _: V) -> Result<(), String> {
+    impl Persistance for TestPersistance {
+        fn write(&mut self, _: Uuid, _: u32) -> Result<(), String> {
             Ok(())
         }
-        fn read(&self, _: K) -> Option<&V> {
+        fn read(&self, _: Uuid) -> Option<&u32> {
             None
         }
     }

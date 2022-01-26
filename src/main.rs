@@ -25,19 +25,3 @@ async fn main() {
     tracker.send_task(task).await;
     tokio::time::sleep(Duration::from_secs(60)).await;
 }
-
-// struct Test {
-//     a: i32,
-// }
-// use std::sync::Arc;
-// use tokio;
-
-// impl Test {
-//     fn foo(self: Arc<Self>) {
-//         tokio::task::spawn(async move { self.inc() });
-//     }
-
-//     fn inc(&mut self) {
-//         self.a += 1
-//     }
-// }

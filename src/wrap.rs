@@ -20,8 +20,6 @@ pub struct APIWrapper {
     client: sheets4::Sheets,
 }
 
-unsafe impl Send for APIWrapper {} // implement Send for APIWrapper to use it in tokio task.
-
 #[async_trait]
 impl API for APIWrapper {
     // writes data to a sheet.
@@ -36,7 +34,7 @@ impl API for APIWrapper {
             ..Default::default()
         };
 
-        println!("writing {}", range);
+        info!("writing {}", range);
 
         let result = self
             .client

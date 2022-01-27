@@ -5,13 +5,35 @@ use datatracker_rust::task::random_value_generator;
 use datatracker_rust::tracker::{Direction, Tracker, TrackingTask};
 use datatracker_rust::wrap::APIWrapper;
 use std::time::Duration;
+use tokio::sync::broadcast;
+use tokio::sync::mpsc::channel;
+
+#[macro_use]
+extern crate log;
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
+    let (shutdown_notify, shutdown_recv) = broadcast::channel(1);
+    let (send, receive) = channel::<TrackingTask>(10);
+
     let api = APIWrapper::new_with_init().await;
     let mem = InMemoryPersistance::new();
-    let mut tracker = Tracker::new(api, mem);
-    tracker.start();
+    let mut tracker = Tracker::new(api, mem, receive, shutdown_recv, shutdown_notify.clone());
+    info!("initialized");
+
+    tokio::task::spawn(async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                // The shutdown signal has been received.
+                shutdown_notify.send(()).unwrap();
+                info!("shutting down");
+            }
+        }
+    });
+    let start = tokio::task::spawn(async move {
+        tracker.start().await;
+    });
     let task = TrackingTask::new(
         "12rVPMk3Lv7VouUZBglDd_oRDf6PHU7m6YbfctmFYYlg".to_string(),
         "".to_string(),
@@ -21,7 +43,8 @@ async fn main() {
         Duration::from_secs(10),
     )
     .with_name("TASK_1".to_string())
-    .with_callback(|r: Result<(), String>| println!("callback: {:?}", r));
-    tracker.send_task(task).await;
-    tokio::time::sleep(Duration::from_secs(60)).await;
+    .with_callback(|r: Result<(), String>| info!("callback: {:?}", r));
+    assert!(send.send(task).await.is_ok());
+
+    start.await.unwrap();
 }

@@ -1,4 +1,6 @@
+pub mod handler;
 pub mod persistance;
+pub mod shutdown;
 pub mod task;
 pub mod tracker;
 pub mod wrap;
@@ -8,5 +10,6 @@ extern crate hyper_rustls;
 extern crate yup_oauth2 as oauth2;
 #[macro_use]
 extern crate log;
+#[allow(unused_imports)]
 #[macro_use]
 extern crate ntest;

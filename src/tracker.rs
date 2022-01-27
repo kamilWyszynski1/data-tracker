@@ -46,7 +46,7 @@ pub struct TrackingTask {
     interval: Duration,   // interval between data writes.
     with_timestamp: bool, // whether to write timestamp.
     timestamp_position: TimestampPosition,
-    invokations: Option<i32>, // number of invokations.
+    invocations: Option<i32>, // number of invocations.
 
     callbacks: Option<Vec<CallbackFn>>,
 }
@@ -81,7 +81,7 @@ impl TrackingTask {
             callbacks: None,
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
-            invokations: None,
+            invocations: None,
         }
     }
 
@@ -106,8 +106,8 @@ impl TrackingTask {
         self
     }
 
-    // with_timestmap adds timestamp to data.
-    pub fn with_timestmap(
+    // with_timestamp adds timestamp to data.
+    pub fn with_timestamp(
         mut self,
         with_timestamp: bool,
         position: TimestampPosition,
@@ -121,9 +121,9 @@ impl TrackingTask {
         self
     }
 
-    // with_invokations sets number of invokations.
-    pub fn with_invokations(mut self, invokations: i32) -> TrackingTask {
-        self.invokations = Some(invokations);
+    // with_invocations sets number of invocations.
+    pub fn with_invocations(mut self, invocations: i32) -> TrackingTask {
+        self.invocations = Some(invocations);
         self
     }
 
@@ -158,7 +158,6 @@ where
 {
     api: A,
     persistance: P,
-    tasks: Vec<TrackingTask>,
     sender: Option<Sender<TrackingTask>>,
 }
 
@@ -188,7 +187,6 @@ where
     pub fn new(api: A, persistance: P) -> Self {
         Tracker {
             api,
-            tasks: Vec::new(),
             sender: None,
             persistance,
         }
@@ -201,7 +199,7 @@ where
         self.sender.as_ref().unwrap().send(task).await.is_ok()
     }
 
-    pub async fn listen(&mut self, mut rx: Receiver<TrackingTask>) {
+    fn listen(&mut self, mut rx: Receiver<TrackingTask>) {
         println!("Listening for tasks.");
         let api = Arc::new(self.api.clone());
         let persistance = Arc::new(Mutex::new(self.persistance.clone()));
@@ -222,55 +220,30 @@ where
         });
     }
 
-    // adds new task to Tracker.
-    pub fn add_task(&mut self, task: TrackingTask) {
-        self.tasks.push(task);
-    }
-
-    // runs all tasks.
-    pub async fn run(&self) {
-        let mut joins = Vec::new(); // create vector of JoinHandle, we will join them later.
-
-        for task in &self.tasks {
-            println!("Running task {}", task.get_name());
-            let task = Arc::new(task.clone());
-            let api = Arc::new(self.api.clone());
-            let persistance = Arc::new(Mutex::new(self.persistance.clone()));
-            joins.push(tokio::task::spawn(async move {
-                schedule_task(task, api, persistance).await;
-            }));
-        }
-
-        for join in joins {
-            join.await.unwrap();
-        }
-        println!("All tasks finished.");
-    }
-
-    pub async fn start(&mut self) {
+    pub fn start(&mut self) {
         println!("Starting Tracker.");
         let (tx, rx) = channel::<TrackingTask>(10);
         self.sender = Some(tx);
         println!("Tracker started.");
-        self.listen(rx).await;
+        self.listen(rx);
     }
 }
 
-pub async fn schedule_task<A, P>(task: Arc<TrackingTask>, api: Arc<A>, persistance: Arc<Mutex<P>>)
+async fn schedule_task<A, P>(task: Arc<TrackingTask>, api: Arc<A>, persistance: Arc<Mutex<P>>)
 where
     A: 'static + API + Sync + Send + Clone,
     P: 'static + Persistance + Sync + Send + Clone,
 {
     println!("Starting task {}", task.get_name());
 
-    let mut counter = 0; // invokations counter. Will not be used if invokations is None.
+    let mut counter = 0; // invocations counter. Will not be used if invocations is None.
     let mut timer = tokio::time::interval(task.interval);
     loop {
         timer.tick().await;
         handle_task(&task, &api, &persistance).await;
-        if let Some(invokations) = task.invokations {
+        if let Some(invocations) = task.invocations {
             counter += 1;
-            if counter >= invokations {
+            if counter >= invocations {
                 break;
             }
         }
@@ -289,28 +262,27 @@ where
     let result = task.get_data();
     match result {
         Ok(data) => {
-            let persistance = persistance.lock().await;
+            let mut persistance = persistance.lock().await;
 
-            let last_place = persistance.read(task.id).unwrap_or(&0);
+            let last_place = persistance.read(&task.id).unwrap_or(&0).clone();
             let data_len = data.len() as u32;
+            println!("last_place: {}, data_len: {}", last_place, data_len);
 
             let result = api
                 .write(
                     create_write_vec(task.direction, data.clone()),
                     &task.spreadsheet_id,
                     &create_range(
-                        last_place,
+                        &last_place, // TODO: calculations are not working properly.
                         &task.starting_position,
                         &task.sheet,
                         task.direction,
                         data_len,
                     ),
                 )
-                .await;
+                .await
+                .and_then(|()| persistance.write(task.id, data_len + last_place));
             task.run_callbacks(result);
-
-            let mut persistance = persistance.clone();
-            persistance.write(task.id, last_place + data_len).unwrap();
         }
         Err(e) => {
             task.run_callbacks(Err(e));
@@ -352,17 +324,25 @@ fn create_range(
         "Starting position must be a single character."
     );
     let number = starting_position[1..].parse::<u32>().unwrap();
-    let mut range = String::from(starting_position);
+    let mut range;
     match direction {
         Direction::Vertical => {
-            range.push_str(&format!(":{}{}", character, offset + number + data_len));
+            range = format!(
+                "{}{}:{}{}",
+                character,
+                offset + number,
+                character,
+                offset + number + data_len
+            );
         }
         Direction::Horizontal => {
-            range.push_str(&format!(
-                ":{}{}",
+            range = format!(
+                "{}{}:{}{}",
+                add_str(character, offset.clone()),
+                number,
                 add_str(character, offset + data_len),
-                number
-            ));
+                number,
+            )
         }
     }
     if !sheet.is_empty() {
@@ -474,104 +454,9 @@ mod tests {
         fn write(&mut self, _: Uuid, _: u32) -> Result<(), String> {
             Ok(())
         }
-        fn read(&self, _: Uuid) -> Option<&u32> {
+        fn read(&self, _: &Uuid) -> Option<&u32> {
             None
         }
-    }
-
-    #[tokio::test]
-    #[timeout(30000)] // 30 sec timeout.
-    async fn test_run() {
-        fn check_cases(v: Vec<Vec<String>>, s: &str, r: &str) {
-            let cases = vec![
-                (vec![vec!["test".to_string()]], "spreadsheet1", "A1:A2"),
-                (vec![vec!["test".to_string()]], "spreadsheet2", "A1:B1"),
-            ];
-            println!("{:?} {} {}", cases, s, r);
-            for (i, c) in cases.iter().enumerate() {
-                if v == c.0 && s == c.1 && r == c.2 {
-                    println!("Case {} passed", i);
-                    return;
-                }
-            }
-            panic!("failed")
-        }
-
-        use crate::tracker::{Direction, Tracker, TrackingTask};
-        let mut t = Tracker::new(
-            TestAPI {
-                check: check_cases,
-                fail: false,
-                fail_msg: "".to_string(),
-            },
-            TestPersistance {},
-        );
-        t.add_task(
-            TrackingTask::new(
-                "spreadsheet1".to_string(),
-                "".to_string(),
-                "A1".to_string(),
-                Direction::Vertical,
-                test_get_data_fn,
-                std::time::Duration::from_secs(1),
-            )
-            .with_name("TEST1".to_string())
-            .with_invokations(1),
-        );
-        t.add_task(
-            TrackingTask::new(
-                "spreadsheet2".to_string(),
-                "".to_string(),
-                "A1".to_string(),
-                Direction::Horizontal,
-                test_get_data_fn,
-                std::time::Duration::from_secs(1),
-            )
-            .with_name("TEST2".to_string())
-            .with_invokations(1),
-        );
-
-        t.run().await;
-    }
-
-    #[tokio::test]
-    #[timeout(30000)] // 30 sec timeout.
-    async fn test_run_callback() {
-        fn check_cases(_: Vec<Vec<String>>, _: &str, _: &str) {}
-        fn callback(res: Result<(), String>) {
-            assert!(res.is_err());
-            match res {
-                Err(e) => {
-                    assert_eq!(e, "fail".to_string());
-                }
-                _ => panic!("failed"),
-            }
-        }
-
-        use crate::tracker::{Direction, Tracker, TrackingTask};
-        let mut t = Tracker::new(
-            TestAPI {
-                check: check_cases,
-                fail: true,
-                fail_msg: "fail".to_string(),
-            },
-            TestPersistance {},
-        );
-
-        t.add_task(
-            TrackingTask::new(
-                "spreadsheet1".to_string(),
-                "".to_string(),
-                "A1".to_string(),
-                Direction::Vertical,
-                test_get_data_fn,
-                std::time::Duration::from_secs(1),
-            )
-            .with_name("TEST3".to_string())
-            .with_callback(callback)
-            .with_invokations(1),
-        );
-        t.run().await;
     }
 
     #[tokio::test]
@@ -611,7 +496,7 @@ mod tests {
             },
             TestPersistance {},
         );
-        t.start().await;
+        t.start();
         t.send_task(
             TrackingTask::new(
                 "spreadsheet4".to_string(),
@@ -622,7 +507,7 @@ mod tests {
                 std::time::Duration::from_secs(1),
             )
             .with_name("TEST4".to_string())
-            .with_invokations(1),
+            .with_invocations(1),
         )
         .await;
         t.send_task(
@@ -636,7 +521,7 @@ mod tests {
             )
             .with_name("TEST5".to_string())
             .with_callback(c(tx))
-            .with_invokations(1),
+            .with_invocations(1),
         )
         .await;
         rx.await.unwrap();

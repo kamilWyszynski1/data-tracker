@@ -11,17 +11,17 @@ async fn main() {
     let api = APIWrapper::new_with_init().await;
     let mem = InMemoryPersistance::new();
     let mut tracker = Tracker::new(api, mem);
-    tracker.start().await;
+    tracker.start();
     let task = TrackingTask::new(
         "12rVPMk3Lv7VouUZBglDd_oRDf6PHU7m6YbfctmFYYlg".to_string(),
         "".to_string(),
         "A1".to_string(),
-        Direction::Horizontal,
+        Direction::Vertical,
         random_value_generator,
         Duration::from_secs(10),
     )
-    .with_name("Writing random stuff to sheets".to_string())
-    .with_callback(|r: Result<(), String>| println!("{:?}", r));
+    .with_name("TASK_1".to_string())
+    .with_callback(|r: Result<(), String>| println!("callback: {:?}", r));
     tracker.send_task(task).await;
     tokio::time::sleep(Duration::from_secs(60)).await;
 }

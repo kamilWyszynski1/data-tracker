@@ -36,6 +36,8 @@ impl API for APIWrapper {
             ..Default::default()
         };
 
+        println!("writing {}", range);
+
         let result = self
             .client
             .spreadsheets()

@@ -1,6 +1,6 @@
 use crate::persistance::{Db, Persistance};
 use crate::shutdown::Shutdown;
-use crate::tracker::{Direction, TrackedData, TrackingTask};
+use crate::task::{Direction, TrackedData, TrackingTask};
 use crate::wrap::API;
 use std::sync::Arc;
 

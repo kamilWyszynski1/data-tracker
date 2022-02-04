@@ -1,8 +1,8 @@
 extern crate datatracker_rust;
 
 use datatracker_rust::persistance::InMemoryPersistance;
-use datatracker_rust::task::random_value_generator;
-use datatracker_rust::tracker::{Direction, Tracker, TrackingTask};
+use datatracker_rust::task::{random_value_generator, Direction, TrackingTask};
+use datatracker_rust::tracker::Tracker;
 use datatracker_rust::wrap::APIWrapper;
 use std::time::Duration;
 use tokio::sync::broadcast;

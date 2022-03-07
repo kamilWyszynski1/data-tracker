@@ -65,8 +65,6 @@ where
         let result = self.task.get_data();
         match result {
             Ok(data) => {
-                // let mut persistance = self.db.lock().await;
-
                 let last_place = self.db.get(&self.task.get_id()).await.unwrap_or(0);
                 let data_len = data.len() as u32;
                 info!("last_place: {}, data_len: {}", last_place, data_len);

@@ -59,7 +59,6 @@ where
     pub async fn start(&mut self) {
         info!("Starting Tracker.");
         let mut spawned = vec![];
-
         while !self.shutdown.is_shutdown() {
             info!("waiting");
             tokio::select! {

@@ -1,4 +1,4 @@
-use crate::persistance::{Db, Persistance};
+use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::task::{Direction, TrackedData, TrackingTask};
 use crate::wrap::API;

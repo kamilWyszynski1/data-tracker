@@ -1,5 +1,5 @@
 use crate::handler::TaskHandler;
-use crate::persistance::{Db, Persistance};
+use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::task::TrackingTask;
 use crate::wrap::API;
@@ -59,7 +59,6 @@ where
     pub async fn start(&mut self) {
         info!("Starting Tracker.");
         let mut spawned = vec![];
-
         while !self.shutdown.is_shutdown() {
             info!("waiting");
             tokio::select! {
@@ -120,7 +119,7 @@ mod tests {
         }
     }
 
-    use crate::persistance::Persistance;
+    use crate::persistance::interface::Persistance;
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
     use uuid::Uuid;

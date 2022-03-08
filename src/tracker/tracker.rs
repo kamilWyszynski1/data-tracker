@@ -1,12 +1,21 @@
-use crate::handler::TaskHandler;
+use super::handler::TaskHandler;
+use super::task::TrackingTask;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
-use crate::task::TrackingTask;
 use crate::wrap::API;
+use std::collections::HashMap;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use uuid::Uuid;
+
+/// Command that can be run in Manager.
+pub enum Command {
+    Resume, // stars stopped task.
+    Stop,   // stops task.
+    Delete, // delete task.
+}
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
@@ -32,6 +41,7 @@ where
     shutdown: Shutdown,
     /// Broadcasts a shutdown signal to all active task handlers..
     notify_shutdown: broadcast::Sender<()>,
+    mapping: HashMap<Uuid, Sender<Command>>,
 }
 
 impl<A, P> Tracker<A, P>
@@ -53,7 +63,14 @@ where
             persistance,
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
+            mapping: HashMap::new(),
         }
+    }
+
+    fn add_new_mapping(&mut self, uuid: Uuid) -> Receiver<Command> {
+        let (send, receive) = channel::<Command>(1);
+        self.mapping.insert(uuid, send);
+        receive
     }
 
     pub async fn start(&mut self) {
@@ -69,8 +86,9 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
-                    let mut handler = TaskHandler::new(task, Db::new(self.persistance.clone()), Shutdown::new(self.notify_shutdown.subscribe()), Arc::new(self.api.clone()));
-                    spawned.push(tokio::task::spawn(async move {handler.run().await}));
+                    let receiver = self.add_new_mapping(task.get_id());
+                    let mut handler = TaskHandler::new(task, Db::new(self.persistance.clone()), Shutdown::new(self.notify_shutdown.subscribe()), Arc::new(self.api.clone()), receiver);
+                    spawned.push(tokio::task::spawn(async move {handler.start().await}));
                 }
             }
         }
@@ -83,8 +101,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::task::{Direction, TrackedData, TrackingTask};
-    use crate::tracker::Tracker;
+    use crate::tracker::task::{Direction, TrackedData, TrackingTask};
+    use crate::tracker::tracker::Tracker;
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
 

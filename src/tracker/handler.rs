@@ -1,8 +1,19 @@
+use super::task::{Direction, TrackedData, TrackingTask};
+use super::tracker::Command;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
-use crate::task::{Direction, TrackedData, TrackingTask};
 use crate::wrap::API;
 use std::sync::Arc;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::Mutex;
+
+/// State is state of currently handled task.
+enum State {
+    Created,
+    Running,
+    Stopped,
+    Quit,
+}
 
 pub struct TaskHandler<P: Persistance, A: API> {
     /// Task that is being handled by TaskHandler.
@@ -13,6 +24,10 @@ pub struct TaskHandler<P: Persistance, A: API> {
     api: Arc<A>,
     /// Indicates whether or not server was shutdown.
     shutdown: Shutdown,
+    /// State of currently handled task.
+    state: Mutex<State>,
+    /// Receives Command regarding running task.
+    receiver: Receiver<Command>,
 }
 
 impl<P, A> TaskHandler<P, A>
@@ -20,19 +35,50 @@ where
     P: Persistance,
     A: API,
 {
-    pub fn new(task: TrackingTask, db: Db<P>, shutdown: Shutdown, api: Arc<A>) -> Self {
+    pub fn new(
+        task: TrackingTask,
+        db: Db<P>,
+        shutdown: Shutdown,
+        api: Arc<A>,
+        receiver: Receiver<Command>,
+    ) -> Self {
         TaskHandler {
             task,
             db,
             shutdown,
             api,
+            state: Mutex::new(State::Created),
+            receiver,
         }
+    }
+
+    /// Quits running task.
+    pub async fn quit(&mut self) {
+        let mut state = self.state.lock().await;
+        *state = State::Quit;
+    }
+
+    /// Stops running task.
+    pub async fn stop(&mut self) {
+        let mut state = self.state.lock().await;
+        *state = State::Stopped;
+    }
+
+    /// Stars stopped task.
+    pub async fn resume(&mut self) {
+        let mut state = self.state.lock().await;
+        *state = State::Running;
     }
 
     /// Starts running task. It runs in loop till shutdown is run.
     ///
     /// Each task is handled per given interval.
-    pub async fn run(&mut self) {
+    pub async fn start(&mut self) {
+        {
+            let mut state = self.state.lock().await;
+            *state = State::Running;
+            // lock dropped here.
+        }
         let mut counter = 0; // invocations counter. Will not be used if invocations is None.
         let mut timer = tokio::time::interval(self.task.get_interval());
         info!("handler starting with: {} task", self.task.get_id());
@@ -46,13 +92,28 @@ where
                 }
                 _ = timer.tick() => {
                     info!("tick");
-                    self.handle().await;
-                    if let Some(invocations) = self.task.get_invocations() {
-                        counter += 1;
-                        if counter >= invocations {
-                            break;
+                    let state = self.state.lock().await;
+                    match *state{
+                        State::Running => {
+                            self.handle().await;
+                            if let Some(invocations) = self.task.get_invocations() {
+                                counter += 1;
+                                if counter >= invocations {
+                                    break;
+                                }
+                            }
                         }
-                    }
+                        State::Stopped => {
+                            info!("Task {} stopped", self.task.get_name());
+                        }
+                        State::Created => {
+                            info!("Task {} created, waiting for run", self.task.get_name());
+                        }
+                        State::Quit => {
+                            info!("Task {} is quitting", self.task.get_name());
+                            return;
+                        }
+                    };
                 }
             }
         }

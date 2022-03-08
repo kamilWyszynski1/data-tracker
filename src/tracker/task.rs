@@ -192,7 +192,7 @@ pub fn random_value_generator() -> Result<TrackedData, String> {
 
 mod test {
     #[allow(unused_imports)]
-    use crate::task::{Direction, TrackedData, TrackingTask};
+    use crate::tracker::task::{Direction, TrackedData, TrackingTask};
 
     #[allow(dead_code)]
     fn test_get_data_fn() -> Result<TrackedData, String> {

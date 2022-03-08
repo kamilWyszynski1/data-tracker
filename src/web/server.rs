@@ -1,6 +1,5 @@
 use hyper::client::HttpConnector;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{header, Body, Client, Method, Request, Response, Server, StatusCode};
+use hyper::{header, Body, Client, Method, Request, Response, StatusCode};
 
 pub type GenericError = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, GenericError>;

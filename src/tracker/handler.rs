@@ -1,5 +1,5 @@
+use super::manager::Command;
 use super::task::{Direction, TrackedData, TrackingTask};
-use super::tracker::Command;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
@@ -52,20 +52,28 @@ where
         }
     }
 
+    async fn apply(&mut self, cmd: Command) {
+        match cmd {
+            Command::Stop => self.stop().await,
+            Command::Delete => self.quit().await,
+            Command::Resume => self.resume().await,
+        }
+    }
+
     /// Quits running task.
-    pub async fn quit(&mut self) {
+    async fn quit(&mut self) {
         let mut state = self.state.lock().await;
         *state = State::Quit;
     }
 
     /// Stops running task.
-    pub async fn stop(&mut self) {
+    async fn stop(&mut self) {
         let mut state = self.state.lock().await;
         *state = State::Stopped;
     }
 
     /// Stars stopped task.
-    pub async fn resume(&mut self) {
+    async fn resume(&mut self) {
         let mut state = self.state.lock().await;
         *state = State::Running;
     }
@@ -89,6 +97,18 @@ where
                     // If a shutdown signal is received, return from `start`.
                     // This will result in the task terminating.
                     return;
+                }
+                cmd = self.receiver.recv() => {
+                    info!("applying {:?} cmd for {} task", cmd, self.task.get_id());
+                    match cmd {
+                        None => {
+                            info!("receiver has been closed to {} task, returning", self.task.get_id());
+                            return;
+                        }
+                        Some(command) => {
+                            self.apply(command).await;
+                        }
+                    }
                 }
                 _ = timer.tick() => {
                     info!("tick");

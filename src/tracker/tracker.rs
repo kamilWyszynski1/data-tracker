@@ -1,21 +1,14 @@
 use super::handler::TaskHandler;
+use super::manager::{SenderManager, TaskCommand};
 use super::task::TrackingTask;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
-use std::collections::HashMap;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::Receiver;
 use uuid::Uuid;
-
-/// Command that can be run in Manager.
-pub enum Command {
-    Resume, // stars stopped task.
-    Stop,   // stops task.
-    Delete, // delete task.
-}
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
@@ -30,6 +23,9 @@ where
     persistance: P,
     /// Listen for incoming TrackingTask to handle.
     task_channel: Receiver<TrackingTask>,
+    /// Listen for incoming Command for Task to handle.
+    task_command_channel: Receiver<TaskCommand>,
+
     /// Listen for shutdown notifications.
     ///
     /// A wrapper around the `broadcast::Receiver` paired with the sender in
@@ -39,9 +35,10 @@ where
     /// processed for the peer is continued until it reaches a safe state, at
     /// which point the connection is terminated.
     shutdown: Shutdown,
+
     /// Broadcasts a shutdown signal to all active task handlers..
     notify_shutdown: broadcast::Sender<()>,
-    mapping: HashMap<Uuid, Sender<Command>>,
+    manager: SenderManager,
 }
 
 impl<A, P> Tracker<A, P>
@@ -56,21 +53,17 @@ where
         task_channel: Receiver<TrackingTask>,
         shutdown_channel: broadcast::Receiver<()>,
         notify_shutdown: broadcast::Sender<()>,
+        task_command_channel: Receiver<TaskCommand>,
     ) -> Self {
         Tracker {
             api,
             task_channel,
+            task_command_channel,
             persistance,
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
-            mapping: HashMap::new(),
+            manager: SenderManager::new(),
         }
-    }
-
-    fn add_new_mapping(&mut self, uuid: Uuid) -> Receiver<Command> {
-        let (send, receive) = channel::<Command>(1);
-        self.mapping.insert(uuid, send);
-        receive
     }
 
     pub async fn start(&mut self) {
@@ -86,9 +79,12 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
-                    let receiver = self.add_new_mapping(task.get_id());
+                    let receiver = self.manager.add_new_mapping(task.get_id());
                     let mut handler = TaskHandler::new(task, Db::new(self.persistance.clone()), Shutdown::new(self.notify_shutdown.subscribe()), Arc::new(self.api.clone()), receiver);
                     spawned.push(tokio::task::spawn(async move {handler.start().await}));
+                }
+                Some(task_cmd) = self.task_command_channel.recv() => {
+                    self.manager.apply(task_cmd.id, task_cmd.cmd).await;
                 }
             }
         }
@@ -138,6 +134,7 @@ mod tests {
     }
 
     use crate::persistance::interface::Persistance;
+    use crate::tracker::tracker::TaskCommand;
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
     use uuid::Uuid;
@@ -184,6 +181,7 @@ mod tests {
 
         let (shutdown_notify, shutdown) = broadcast::channel(1);
         let (send, receive) = channel::<TrackingTask>(1);
+        let (cmd_send, cmd_receive) = channel::<TaskCommand>(1);
 
         let mut t = Tracker::new(
             TestAPI {
@@ -195,6 +193,7 @@ mod tests {
             receive,
             shutdown,
             shutdown_notify,
+            cmd_receive,
         );
         tokio::task::spawn(async move {
             t.start().await;

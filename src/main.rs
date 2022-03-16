@@ -57,5 +57,5 @@ async fn main() {
     assert!(send.send(task).await.is_ok());
 
     let rocket = rocket(cmd_send);
-    join!(rocket.launch(), start);
+    let (_, _) = join!(rocket.launch(), start);
 }

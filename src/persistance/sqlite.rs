@@ -22,7 +22,7 @@ impl Persistance for SqliteClient {
             "INSERT INTO tasks VALUES (?1, ?2)",
             params![key.to_string(), value],
         ) {
-            Err(e) => Err("could not write to db".to_string()),
+            Err(_) => Err("could not write to db".to_string()),
             Ok(_) => Ok(()),
         }
     }

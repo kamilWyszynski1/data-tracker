@@ -1,7 +1,5 @@
 use crate::tracker::manager::{Command, TaskCommand};
 use rocket::http::Status;
-use rocket::http::{ContentType, Header};
-use rocket::response::{Responder, Response};
 use rocket::serde::json::Json;
 use rocket::State;
 use serde::Deserialize;

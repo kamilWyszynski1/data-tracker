@@ -8,7 +8,6 @@ use std::marker::{Send, Sync};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Receiver;
-use uuid::Uuid;
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.

@@ -1,8 +1,19 @@
+use super::manager::Command;
+use super::task::{Direction, TrackedData, TrackingTask};
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
-use crate::task::{Direction, TrackedData, TrackingTask};
 use crate::wrap::API;
 use std::sync::Arc;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::Mutex;
+
+/// State is state of currently handled task.
+enum State {
+    Created,
+    Running,
+    Stopped,
+    Quit,
+}
 
 pub struct TaskHandler<P: Persistance, A: API> {
     /// Task that is being handled by TaskHandler.
@@ -13,6 +24,10 @@ pub struct TaskHandler<P: Persistance, A: API> {
     api: Arc<A>,
     /// Indicates whether or not server was shutdown.
     shutdown: Shutdown,
+    /// State of currently handled task.
+    state: Mutex<State>,
+    /// Receives Command regarding running task.
+    receiver: Receiver<Command>,
 }
 
 impl<P, A> TaskHandler<P, A>
@@ -20,22 +35,61 @@ where
     P: Persistance,
     A: API,
 {
-    pub fn new(task: TrackingTask, db: Db<P>, shutdown: Shutdown, api: Arc<A>) -> Self {
+    pub fn new(
+        task: TrackingTask,
+        db: Db<P>,
+        shutdown: Shutdown,
+        api: Arc<A>,
+        receiver: Receiver<Command>,
+    ) -> Self {
         TaskHandler {
             task,
             db,
             shutdown,
             api,
+            state: Mutex::new(State::Created),
+            receiver,
         }
+    }
+
+    async fn apply(&mut self, cmd: Command) {
+        match cmd {
+            Command::Stop => self.stop().await,
+            Command::Delete => self.quit().await,
+            Command::Resume => self.resume().await,
+        }
+    }
+
+    /// Quits running task.
+    async fn quit(&mut self) {
+        let mut state = self.state.lock().await;
+        *state = State::Quit;
+    }
+
+    /// Stops running task.
+    async fn stop(&mut self) {
+        let mut state = self.state.lock().await;
+        *state = State::Stopped;
+    }
+
+    /// Stars stopped task.
+    async fn resume(&mut self) {
+        let mut state = self.state.lock().await;
+        *state = State::Running;
     }
 
     /// Starts running task. It runs in loop till shutdown is run.
     ///
     /// Each task is handled per given interval.
-    pub async fn run(&mut self) {
+    pub async fn start(&mut self) {
+        {
+            let mut state = self.state.lock().await;
+            *state = State::Running;
+            // lock dropped here.
+        }
         let mut counter = 0; // invocations counter. Will not be used if invocations is None.
         let mut timer = tokio::time::interval(self.task.get_interval());
-        info!("handler starting with: {} task", self.task.get_id());
+        info!("handler starting with: {} task", self.task.info());
         while !self.shutdown.is_shutdown() {
             tokio::select! {
                 _ = self.shutdown.recv() => {
@@ -44,15 +98,42 @@ where
                     // This will result in the task terminating.
                     return;
                 }
-                _ = timer.tick() => {
-                    info!("tick");
-                    self.handle().await;
-                    if let Some(invocations) = self.task.get_invocations() {
-                        counter += 1;
-                        if counter >= invocations {
-                            break;
+                cmd = self.receiver.recv() => {
+                    info!("applying {:?} cmd for {} task", cmd, self.task.info());
+                    match cmd {
+                        None => {
+                            info!("receiver has been closed to {} task, returning", self.task.info());
+                            return;
+                        }
+                        Some(command) => {
+                            self.apply(command).await;
                         }
                     }
+                }
+                _ = timer.tick() => {
+                    info!("tick");
+                    let state = self.state.lock().await;
+                    match *state{
+                        State::Running => {
+                            self.handle().await;
+                            if let Some(invocations) = self.task.get_invocations() {
+                                counter += 1;
+                                if counter >= invocations {
+                                    break;
+                                }
+                            }
+                        }
+                        State::Stopped => {
+                            info!("Task {} stopped", self.task.info());
+                        }
+                        State::Created => {
+                            info!("Task {} created, waiting for run", self.task.info());
+                        }
+                        State::Quit => {
+                            info!("Task {} is quitting", self.task.info());
+                            return;
+                        }
+                    };
                 }
             }
         }
@@ -60,7 +141,7 @@ where
 
     /// Performs single handling of task.
     async fn handle(&self) {
-        info!("Handling task {}", self.task.get_name());
+        info!("Handling task {}", self.task.info());
 
         let result = self.task.get_data();
         match result {

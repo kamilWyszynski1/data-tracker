@@ -1,7 +1,8 @@
-use crate::handler::TaskHandler;
+use super::handler::TaskHandler;
+use super::manager::{SenderManager, TaskCommand};
+use super::task::TrackingTask;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
-use crate::task::TrackingTask;
 use crate::wrap::API;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
@@ -21,6 +22,9 @@ where
     persistance: P,
     /// Listen for incoming TrackingTask to handle.
     task_channel: Receiver<TrackingTask>,
+    /// Listen for incoming Command for Task to handle.
+    task_command_channel: Receiver<TaskCommand>,
+
     /// Listen for shutdown notifications.
     ///
     /// A wrapper around the `broadcast::Receiver` paired with the sender in
@@ -30,8 +34,10 @@ where
     /// processed for the peer is continued until it reaches a safe state, at
     /// which point the connection is terminated.
     shutdown: Shutdown,
+
     /// Broadcasts a shutdown signal to all active task handlers..
     notify_shutdown: broadcast::Sender<()>,
+    manager: SenderManager,
 }
 
 impl<A, P> Tracker<A, P>
@@ -46,13 +52,16 @@ where
         task_channel: Receiver<TrackingTask>,
         shutdown_channel: broadcast::Receiver<()>,
         notify_shutdown: broadcast::Sender<()>,
+        task_command_channel: Receiver<TaskCommand>,
     ) -> Self {
         Tracker {
             api,
             task_channel,
+            task_command_channel,
             persistance,
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
+            manager: SenderManager::default(),
         }
     }
 
@@ -60,7 +69,6 @@ where
         info!("Starting Tracker.");
         let mut spawned = vec![];
         while !self.shutdown.is_shutdown() {
-            info!("waiting");
             tokio::select! {
                 _ = self.shutdown.recv() => {
                     info!("tracker is shutting down");
@@ -69,8 +77,12 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
-                    let mut handler = TaskHandler::new(task, Db::new(self.persistance.clone()), Shutdown::new(self.notify_shutdown.subscribe()), Arc::new(self.api.clone()));
-                    spawned.push(tokio::task::spawn(async move {handler.run().await}));
+                    let receiver = self.manager.add_new_mapping(task.get_id());
+                    let mut handler = TaskHandler::new(task, Db::new(self.persistance.clone()), Shutdown::new(self.notify_shutdown.subscribe()), Arc::new(self.api.clone()), receiver);
+                    spawned.push(tokio::task::spawn(async move {handler.start().await}));
+                }
+                Some(task_cmd) = self.task_command_channel.recv() => {
+                    self.manager.apply(task_cmd.id, task_cmd.cmd).await;
                 }
             }
         }
@@ -83,8 +95,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::task::{Direction, TrackedData, TrackingTask};
-    use crate::tracker::Tracker;
+    use crate::tracker::task::{Direction, TrackedData, TrackingTask};
+    use crate::tracker::tracker::Tracker;
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
 
@@ -120,6 +132,7 @@ mod tests {
     }
 
     use crate::persistance::interface::Persistance;
+    use crate::tracker::tracker::TaskCommand;
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
     use uuid::Uuid;
@@ -166,6 +179,7 @@ mod tests {
 
         let (shutdown_notify, shutdown) = broadcast::channel(1);
         let (send, receive) = channel::<TrackingTask>(1);
+        let (cmd_send, cmd_receive) = channel::<TaskCommand>(1);
 
         let mut t = Tracker::new(
             TestAPI {
@@ -177,6 +191,7 @@ mod tests {
             receive,
             shutdown,
             shutdown_notify,
+            cmd_receive,
         );
         tokio::task::spawn(async move {
             t.start().await;

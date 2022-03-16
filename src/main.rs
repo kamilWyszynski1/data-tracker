@@ -1,10 +1,12 @@
 extern crate datatracker_rust;
-
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
-use datatracker_rust::task::{random_value_generator, Direction, TrackingTask};
-use datatracker_rust::tracker::Tracker;
+use datatracker_rust::tracker::manager::TaskCommand;
+use datatracker_rust::tracker::task::{random_value_generator, Direction, TrackingTask};
+use datatracker_rust::tracker::tracker::Tracker;
+use datatracker_rust::web::build::rocket;
 use datatracker_rust::wrap::APIWrapper;
 use std::time::Duration;
+use tokio::join;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::channel;
 
@@ -16,10 +18,18 @@ async fn main() {
     env_logger::init();
     let (shutdown_notify, shutdown_recv) = broadcast::channel(1);
     let (send, receive) = channel::<TrackingTask>(10);
+    let (cmd_send, cmd_receive) = channel::<TaskCommand>(10);
 
     let api = APIWrapper::new_with_init().await;
     let mem = InMemoryPersistance::new();
-    let mut tracker = Tracker::new(api, mem, receive, shutdown_recv, shutdown_notify.clone());
+    let mut tracker = Tracker::new(
+        api,
+        mem,
+        receive,
+        shutdown_recv,
+        shutdown_notify.clone(),
+        cmd_receive,
+    );
     info!("initialized");
 
     tokio::task::spawn(async move {
@@ -40,11 +50,12 @@ async fn main() {
         "A1".to_string(),
         Direction::Vertical,
         random_value_generator,
-        Duration::from_secs(10),
+        Duration::from_secs(30),
     )
     .with_name("TASK_1".to_string())
-    .with_callback(|r: Result<(), String>| info!("callback: {:?}", r));
+    .with_callback(|r: std::result::Result<(), String>| info!("callback: {:?}", r));
     assert!(send.send(task).await.is_ok());
 
-    start.await.unwrap();
+    let rocket = rocket(cmd_send);
+    let (_, _) = join!(rocket.launch(), start);
 }

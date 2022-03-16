@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use uuid::Uuid; // crate for async traits.
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// Command that can be run in Manager.
 pub enum Command {
     Resume, // stars stopped task.
@@ -15,13 +15,14 @@ impl Command {
     pub fn from_string(s: &str) -> Result<Self, &'static str> {
         match s.to_lowercase().as_str() {
             "resume" => Ok(Command::Resume),
-            "stop" => Ok(Command::Resume),
-            "delete" => Ok(Command::Resume),
+            "stop" => Ok(Command::Stop),
+            "delete" => Ok(Command::Delete),
             _ => Err("invalid string"),
         }
     }
 }
 
+#[derive(Debug, PartialEq)]
 /// Contains tasks' uuid and command to be applied.
 pub struct TaskCommand {
     pub id: Uuid,
@@ -42,7 +43,7 @@ pub struct SenderManager {
 }
 
 impl SenderManager {
-    pub fn new() -> Self {
+    pub fn default() -> Self {
         SenderManager {
             mapping: HashMap::new(),
         }
@@ -54,13 +55,13 @@ impl SenderManager {
         self.mapping.insert(uuid, send);
         receive
     }
-    pub async fn apply(&self, uuid: Uuid, cmd: Command) {}
-
-    fn foo(&self) -> String {
-        "elo".to_owned()
-    }
-
-    fn len(&self) -> usize {
-        self.mapping.len()
+    pub async fn apply(&self, uuid: Uuid, cmd: Command) {
+        if let Err(err) = self.mapping.get(&uuid).unwrap().send(cmd).await {
+            error!(
+                "failed to send command to {} task, {:?}",
+                uuid.to_simple(),
+                err
+            )
+        };
     }
 }

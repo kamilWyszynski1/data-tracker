@@ -25,14 +25,14 @@ impl Default for InMemoryPersistance {
 
 impl Persistance for InMemoryPersistance {
     fn write(&mut self, key: Uuid, value: u32) -> Result<(), String> {
-        info!("writing: {}{}", key, value);
+        info!("writing: {}{}", key.to_simple(), value);
         self.data.insert(key, value);
         Ok(())
     }
 
     fn read(&self, key: &Uuid) -> Option<u32> {
         for (key, value) in (&self.data).iter() {
-            info!("{} / {}", key, value);
+            info!("{} / {}", key.to_simple(), value);
         }
         self.data.get(key).copied()
     }

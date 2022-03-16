@@ -3,8 +3,10 @@ use datatracker_rust::persistance::in_memory::InMemoryPersistance;
 use datatracker_rust::tracker::manager::TaskCommand;
 use datatracker_rust::tracker::task::{random_value_generator, Direction, TrackingTask};
 use datatracker_rust::tracker::tracker::Tracker;
+use datatracker_rust::web::build::rocket;
 use datatracker_rust::wrap::APIWrapper;
 use std::time::Duration;
+use tokio::join;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::channel;
 
@@ -48,9 +50,12 @@ async fn main() {
         "A1".to_string(),
         Direction::Vertical,
         random_value_generator,
-        Duration::from_secs(10),
+        Duration::from_secs(30),
     )
     .with_name("TASK_1".to_string())
     .with_callback(|r: std::result::Result<(), String>| info!("callback: {:?}", r));
     assert!(send.send(task).await.is_ok());
+
+    let rocket = rocket(cmd_send);
+    join!(rocket.launch(), start);
 }

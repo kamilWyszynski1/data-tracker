@@ -62,7 +62,7 @@ where
             persistance,
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
-            manager: SenderManager::new(),
+            manager: SenderManager::default(),
         }
     }
 
@@ -70,7 +70,6 @@ where
         info!("Starting Tracker.");
         let mut spawned = vec![];
         while !self.shutdown.is_shutdown() {
-            info!("waiting");
             tokio::select! {
                 _ = self.shutdown.recv() => {
                     info!("tracker is shutting down");

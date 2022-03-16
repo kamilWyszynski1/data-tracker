@@ -177,6 +177,15 @@ impl TrackingTask {
     pub fn get_starting_position(&self) -> String {
         self.starting_position.clone()
     }
+
+    /// returns String that can be put into logs.
+    pub fn info(&self) -> String {
+        if let Some(name) = &self.name {
+            format!("{}/{}", name.as_str(), self.id.to_simple())
+        } else {
+            format!("{}", self.id.to_simple())
+        }
+    }
 }
 
 // random_value_generator generates random values.

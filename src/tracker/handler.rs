@@ -89,7 +89,7 @@ where
         }
         let mut counter = 0; // invocations counter. Will not be used if invocations is None.
         let mut timer = tokio::time::interval(self.task.get_interval());
-        info!("handler starting with: {} task", self.task.get_id());
+        info!("handler starting with: {} task", self.task.info());
         while !self.shutdown.is_shutdown() {
             tokio::select! {
                 _ = self.shutdown.recv() => {
@@ -99,10 +99,10 @@ where
                     return;
                 }
                 cmd = self.receiver.recv() => {
-                    info!("applying {:?} cmd for {} task", cmd, self.task.get_id());
+                    info!("applying {:?} cmd for {} task", cmd, self.task.info());
                     match cmd {
                         None => {
-                            info!("receiver has been closed to {} task, returning", self.task.get_id());
+                            info!("receiver has been closed to {} task, returning", self.task.info());
                             return;
                         }
                         Some(command) => {
@@ -124,13 +124,13 @@ where
                             }
                         }
                         State::Stopped => {
-                            info!("Task {} stopped", self.task.get_name());
+                            info!("Task {} stopped", self.task.info());
                         }
                         State::Created => {
-                            info!("Task {} created, waiting for run", self.task.get_name());
+                            info!("Task {} created, waiting for run", self.task.info());
                         }
                         State::Quit => {
-                            info!("Task {} is quitting", self.task.get_name());
+                            info!("Task {} is quitting", self.task.info());
                             return;
                         }
                     };
@@ -141,7 +141,7 @@ where
 
     /// Performs single handling of task.
     async fn handle(&self) {
-        info!("Handling task {}", self.task.get_name());
+        info!("Handling task {}", self.task.info());
 
         let result = self.task.get_data();
         match result {

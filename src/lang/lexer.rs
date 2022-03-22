@@ -1,4 +1,6 @@
+use core::panic;
 use std::{
+    any::{Any, TypeId},
     env::VarError,
     fmt::{self, Display},
 };
@@ -86,14 +88,113 @@ impl Node {
                         }
                         return Variable::Int(sum as isize);
                     }
-                    Keyword::Min => todo!(),
-                    Keyword::Div => todo!(),
-                    Keyword::Mult => todo!(),
+                    Keyword::Min => min(nodes),
+                    Keyword::Div => div(nodes),
+                    Keyword::Mult => mult(nodes),
                     _ => todo!(),
                 }
             }
             NodeEnum::Var(ref var) => Variable::String(var.clone()),
         }
+    }
+}
+
+fn min(nodes: Vec<Variable>) -> Variable {
+    let mut result = 0.;
+    let mut is_float = false;
+    assert_eq!(nodes.len(), 2);
+    let mut iter = nodes.iter();
+    let v1 = iter.next().unwrap();
+    let v2 = iter.next().unwrap();
+
+    match v1 {
+        Variable::Float(f) => {
+            is_float = true;
+            if let Variable::Float(f2) = v2 {
+                result = f - f2;
+            } else {
+                panic!("second value is not float")
+            }
+        }
+        Variable::Int(i) => {
+            if let Variable::Int(i2) = v2 {
+                result = (i - i2) as f32;
+            } else {
+                panic!("second value is not float")
+            }
+        }
+        _ => panic!("invalid type for Min"),
+    }
+    if is_float {
+        Variable::Float(result)
+    } else {
+        Variable::Int(result as isize)
+    }
+}
+
+fn div(nodes: Vec<Variable>) -> Variable {
+    let mut result = 0.;
+    let mut is_float = false;
+    assert_eq!(nodes.len(), 2);
+    let mut iter = nodes.iter();
+    let v1 = iter.next().unwrap();
+    let v2 = iter.next().unwrap();
+
+    match v1 {
+        Variable::Float(f) => {
+            is_float = true;
+            if let Variable::Float(f2) = v2 {
+                result = f / f2;
+            } else {
+                panic!("second value is not float")
+            }
+        }
+        Variable::Int(i) => {
+            if let Variable::Int(i2) = v2 {
+                result = (i / i2) as f32;
+            } else {
+                panic!("second value is not float")
+            }
+        }
+        _ => panic!("invalid type for Min"),
+    }
+    if is_float {
+        Variable::Float(result)
+    } else {
+        Variable::Int(result as isize)
+    }
+}
+
+fn mult(nodes: Vec<Variable>) -> Variable {
+    let mut result = 0.;
+    let mut is_float = false;
+    assert_eq!(nodes.len(), 2);
+    let mut iter = nodes.iter();
+    let v1 = iter.next().unwrap();
+    let v2 = iter.next().unwrap();
+
+    match v1 {
+        Variable::Float(f) => {
+            is_float = true;
+            if let Variable::Float(f2) = v2 {
+                result = f * f2;
+            } else {
+                panic!("second value is not float")
+            }
+        }
+        Variable::Int(i) => {
+            if let Variable::Int(i2) = v2 {
+                result = (i * i2) as f32;
+            } else {
+                panic!("second value is not float")
+            }
+        }
+        _ => panic!("invalid type for Min"),
+    }
+    if is_float {
+        Variable::Float(result)
+    } else {
+        Variable::Int(result as isize)
     }
 }
 
@@ -104,7 +205,15 @@ where
 {
     assert_eq!(nodes.len(), 1);
     let param = nodes.first().unwrap();
-    if let Variable::String(s) = param {
+    parse_type(param)
+}
+
+fn parse_type<T>(v: &Variable) -> T
+where
+    T: std::str::FromStr + std::fmt::Debug,
+    <T as std::str::FromStr>::Err: std::fmt::Debug,
+{
+    if let Variable::String(s) = v {
         return s.parse::<T>().unwrap();
     }
     panic!("param is not Variable::String")
@@ -351,8 +460,43 @@ mod tests {
         assert_eq!(n3.eval(), Variable::Float(125.3));
 
         let n4 = Node::new_keyword(Keyword::Add)
-            .append(n2)
+            .append(n2.clone())
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"))));
         assert_eq!(n4.eval(), Variable::Int(323));
+
+        let n5 = Node::new_keyword(Keyword::Min)
+            .append(n2)
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("23"))));
+        assert_eq!(n5.eval(), Variable::Int(100));
+
+        let n5 = Node::new_keyword(Keyword::Div)
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("20"))))
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
+        assert_eq!(n5.eval(), Variable::Int(10));
+
+        let n5 = Node::new_keyword(Keyword::Div)
+            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("20.0"))))
+            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+        assert_eq!(n5.eval(), Variable::Float(8.));
+
+        let n5 = Node::new_keyword(Keyword::Div)
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
+        assert_eq!(n5.eval(), Variable::Int(-10));
+
+        let n5 = Node::new_keyword(Keyword::Div)
+            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
+            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+        assert_eq!(n5.eval(), Variable::Float(-8.));
+
+        let n5 = Node::new_keyword(Keyword::Mult)
+            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
+            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+        assert_eq!(n5.eval(), Variable::Float(-50.));
+
+        let n5 = Node::new_keyword(Keyword::Mult)
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
+        assert_eq!(n5.eval(), Variable::Int(-40));
     }
 }

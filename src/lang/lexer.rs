@@ -1,4 +1,9 @@
-use std::fmt::{self, Display};
+use std::{
+    env::VarError,
+    fmt::{self, Display},
+};
+
+use super::eval::Variable;
 
 #[derive(Debug, PartialEq, Clone)]
 enum NodeEnum {
@@ -56,9 +61,53 @@ impl Node {
         self.clone()
     }
 
-    // fn eval(&self) -> Variable {
-    //     if let NodeEnum::Var(var) = self.value {}
-    // }
+    fn eval(&self) -> Variable {
+        match self.value {
+            NodeEnum::None => todo!(),
+            NodeEnum::Keyword(ref keyword) => {
+                let nodes: Vec<Variable> = self.nodes.iter().map(|n| n.eval()).collect();
+                match keyword {
+                    Keyword::Bool => return Variable::Bool(parse_single_param(nodes)),
+                    Keyword::Int => return Variable::Int(parse_single_param(nodes)),
+                    Keyword::Float => return Variable::Float(parse_single_param(nodes)),
+                    Keyword::Add => {
+                        let mut is_float = false;
+                        let mut sum: f32 = 0.;
+                        nodes.iter().for_each(|n| match *n {
+                            Variable::Float(f) => {
+                                sum += f;
+                                is_float = true;
+                            }
+                            Variable::Int(i) => sum += i as f32,
+                            _ => panic!("invalid type for Add"),
+                        });
+                        if is_float {
+                            return Variable::Float(sum);
+                        }
+                        return Variable::Int(sum as isize);
+                    }
+                    Keyword::Min => todo!(),
+                    Keyword::Div => todo!(),
+                    Keyword::Mult => todo!(),
+                    _ => todo!(),
+                }
+            }
+            NodeEnum::Var(ref var) => Variable::String(var.clone()),
+        }
+    }
+}
+
+fn parse_single_param<T>(nodes: Vec<Variable>) -> T
+where
+    T: std::str::FromStr + std::fmt::Debug,
+    <T as std::str::FromStr>::Err: std::fmt::Debug,
+{
+    assert_eq!(nodes.len(), 1);
+    let param = nodes.first().unwrap();
+    if let Variable::String(s) = param {
+        return s.parse::<T>().unwrap();
+    }
+    panic!("param is not Variable::String")
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -229,7 +278,10 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::lang::lexer::{Keyword, Node, Parser};
+    use crate::lang::{
+        eval::Variable,
+        lexer::{Keyword, Node, Parser},
+    };
 
     use super::Lexer;
 
@@ -276,5 +328,31 @@ mod tests {
                     .append(Node::new_var(String::from("use"))),
             );
         assert_eq!(got, main);
+    }
+
+    #[test]
+    fn test_eval() {
+        let var = String::from("var");
+        let n1 = Node::new_var(var.clone());
+        assert_eq!(n1.eval(), Variable::String(var));
+
+        let n1 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("true")));
+        assert_eq!(n1.eval(), Variable::Bool(true));
+
+        let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
+        assert_eq!(n1.eval(), Variable::Float(2.3));
+
+        let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
+        assert_eq!(n2.eval(), Variable::Int(123));
+
+        let n3 = Node::new_keyword(Keyword::Add)
+            .append(n1)
+            .append(n2.clone());
+        assert_eq!(n3.eval(), Variable::Float(125.3));
+
+        let n4 = Node::new_keyword(Keyword::Add)
+            .append(n2)
+            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"))));
+        assert_eq!(n4.eval(), Variable::Int(323));
     }
 }

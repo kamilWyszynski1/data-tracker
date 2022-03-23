@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Variable {
-    None,
+    None, // placeholder for functionalities that does not produce Variables, like DEFINE.
     Bool(bool),
     Int(isize),
     Float(f32),

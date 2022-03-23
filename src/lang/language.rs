@@ -14,18 +14,30 @@ impl Definition {
     }
 }
 
+impl IntoIterator for Definition {
+    type Item = String;
+    type IntoIter = <Vec<String> as IntoIterator>::IntoIter; // so that you don't have to write std::vec::IntoIter, which nobody remembers anyway
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.steps.into_iter()
+    }
+}
+
 pub struct State {
     variables: HashMap<String, Variable>,
 }
 
 impl State {
-    fn default() -> Self {
+    pub fn default() -> Self {
         State {
             variables: HashMap::new(),
         }
     }
 
-    pub fn variable(&self, key: String) -> &Variable {
+    pub fn set(&mut self, key: String, v: Variable) {
+        self.variables.insert(key, v);
+    }
+    pub fn get(&self, key: String) -> &Variable {
         self.variables.get(&key).unwrap()
     }
 

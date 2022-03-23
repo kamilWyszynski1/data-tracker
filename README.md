@@ -1,7 +1,6 @@
 # DataTracker
 
-BinanceBot is an application that tracks various kinds of data and saves them to Google Sheets(for now).
+DataTracker is an application that tracks various kinds of data and saves them to Google Sheets(for now).
 
-## Used technologies
-
-* Google Sheets Golang SDK
+## Basic flow
+![alt text](flow.jpeg) 

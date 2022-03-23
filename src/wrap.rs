@@ -72,7 +72,7 @@ impl APIWrapper {
 
         // Get an ApplicationSecret instance by some means. It contains the `client_id` and
         // `client_secret`, among other things.
-        let secret = yup_oauth2::read_application_secret("credentials.json")
+        let secret = oauth2::read_application_secret("credentials.json")
             .await
             .expect("client secret could not be read");
 
@@ -82,9 +82,9 @@ impl APIWrapper {
         // Provide your own `AuthenticatorDelegate` to adjust the way it operates and get feedback about
         // what's going on. You probably want to bring in your own `TokenStorage` to persist tokens and
         // retrieve them from storage.
-        let auth = yup_oauth2::InstalledFlowAuthenticator::builder(
+        let auth = oauth2::InstalledFlowAuthenticator::builder(
             secret,
-            yup_oauth2::InstalledFlowReturnMethod::HTTPRedirect,
+            oauth2::InstalledFlowReturnMethod::HTTPRedirect,
         )
         .persist_tokens_to_disk("tokencache.json")
         .build()

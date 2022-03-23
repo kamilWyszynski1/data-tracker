@@ -179,7 +179,7 @@ mod tests {
 
         let (shutdown_notify, shutdown) = broadcast::channel(1);
         let (send, receive) = channel::<TrackingTask>(1);
-        let (cmd_send, cmd_receive) = channel::<TaskCommand>(1);
+        let (_cmd_send, cmd_receive) = channel::<TaskCommand>(1);
 
         let mut t = Tracker::new(
             TestAPI {

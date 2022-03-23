@@ -1,10 +1,7 @@
-use serde_json::Value;
-
-use crate::lang::variable::value_object_to_variable_object;
-
 use super::{language::State, variable::Variable};
+use crate::lang::variable::value_object_to_variable_object;
 use core::panic;
-use std::collections::HashMap;
+use serde_json::Value;
 use std::fmt::{self, Display};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -96,8 +93,9 @@ impl Node {
                     Keyword::Extract => extract(&nodes),
                     Keyword::Define => define(&nodes, state),
                     Keyword::Get => get(&nodes, state),
-                    Keyword::Json => todo!(),
+                    Keyword::Json => json(&nodes),
                     Keyword::Object => object(&nodes),
+                    Keyword::HTTP => http(&nodes),
                     Keyword::None => panic!("should not be reached"),
                 }
             }
@@ -210,6 +208,7 @@ fn mult(nodes: &Vec<Variable>) -> Variable {
     }
 }
 
+// Extracts field/index from wanted Variable.
 fn extract(nodes: &Vec<Variable>) -> Variable {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
@@ -218,6 +217,7 @@ fn extract(nodes: &Vec<Variable>) -> Variable {
     v1.extract(v2).unwrap()
 }
 
+// Defines new variable and writes it to a state.
 fn define(nodes: &Vec<Variable>, state: &mut State) -> Variable {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
@@ -233,18 +233,34 @@ fn define(nodes: &Vec<Variable>, state: &mut State) -> Variable {
     Variable::None
 }
 
+// Returns declared variable.
 fn get(nodes: &Vec<Variable>, state: &State) -> Variable {
     let v = parse_single_param::<String>(nodes);
 
     state.get(v).clone()
 }
 
+// Returns Variable::Object parsed from json-like string.
 fn object(nodes: &Vec<Variable>) -> Variable {
     let v = parse_single_param::<String>(nodes);
 
     let obj: Value = serde_json::from_str(&v).unwrap();
     assert!(obj.is_object());
     value_object_to_variable_object(obj)
+}
+
+// Returns Variable::Json.
+fn json(nodes: &Vec<Variable>) -> Variable {
+    let v = parse_single_param::<String>(nodes);
+    let obj: Value = serde_json::from_str(&v).unwrap();
+    Variable::Json(obj)
+}
+
+// Performs GET http request, returns Variable::Json.
+fn http(nodes: &Vec<Variable>) -> Variable {
+    let url = parse_single_param::<String>(nodes);
+    let body: Value = reqwest::blocking::get(url).unwrap().json().unwrap();
+    Variable::Json(body)
 }
 
 /// Parses single Variable to given type.
@@ -287,6 +303,7 @@ enum Keyword {
     Min,
     Div,
     Mult,
+    HTTP, // performs http request, has to return Variable::Json.
 }
 
 impl Keyword {
@@ -305,7 +322,7 @@ impl Keyword {
             "div" => Self::Div,
             "mult" => Self::Mult,
             "object" => Self::Object,
-
+            "http" => Self::HTTP,
             _ => Self::None,
         };
         if s == Self::None {
@@ -469,15 +486,14 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
+    use super::Lexer;
     use crate::lang::{
         language::{Definition, State},
         lexer::{Keyword, Node, Parser, Token},
         variable::Variable,
     };
-
-    use super::Lexer;
+    use serde_json::Value;
+    use std::collections::HashMap;
 
     #[test]
     fn test_simple_lexer() {
@@ -799,113 +815,113 @@ mod tests {
         assert_eq!(*state.get(String::from("var2")), obj);
     }
 
-    // #[test]
-    // fn test_parse_json_define() {
-    //     let data = r#"
-    //     {
-    //         "name": "John Doe",
-    //         "age": 43,
-    //         "phones": [
-    //             "+44 1234567",
-    //             "+44 2345678"
-    //         ]
-    //     }"#;
-    //     // Parse the string of data into serde_json::Value.
-    //     let v: Value = serde_json::from_str(data).unwrap();
+    #[test]
+    fn test_parse_json_define() {
+        let data = r#"
+        {
+            "name": "John Doe",
+            "age": 43,
+            "phones": [
+                "+44 1234567",
+                "+44 2345678"
+            ]
+        }"#;
+        // Parse the string of data into serde_json::Value.
+        let v: Value = serde_json::from_str(data).unwrap();
 
-    //     let mut state = State::default();
-    //     let def = Definition::new(vec![
-    //         format!("DEFINE(var, JSON({}))", data).to_string(),
-    //         "DEFINE(var2, EXTRACT(var, name))".to_string(),
-    //     ]);
-    //     state.fire(&def);
-    //     assert_eq!(*state.get("var".to_string()), Variable::Json(v));
-    //     assert_eq!(
-    //         *state.get("var2".to_string()),
-    //         Variable::String(String::from("John Doe"))
-    //     );
-    // }
+        let mut state = State::default();
+        let def = Definition::new(vec![
+            format!("DEFINE(var, JSON('{}'))", data).to_string(),
+            "DEFINE(var2, EXTRACT(GET(var), name))".to_string(),
+        ]);
+        fire(def, &mut state);
+        assert_eq!(*state.get("var".to_string()), Variable::Json(v));
+        assert_eq!(
+            *state.get("var2".to_string()),
+            Variable::String(String::from("John Doe"))
+        );
+    }
 
-    // #[test]
-    // fn test_parse_array_define() {
-    //     let def = Definition::new(vec!["DEFINE(var, VEC(1,2,3,4))".to_string()]);
-    //     test(
-    //         def,
-    //         "var".to_string(),
-    //         Variable::Vector(vec![
-    //             Variable::String(String::from("1")),
-    //             Variable::String(String::from("2")),
-    //             Variable::String(String::from("3")),
-    //             Variable::String(String::from("4")),
-    //         ]),
-    //     );
-    // }
+    #[test]
+    fn test_parse_array_define() {
+        let def = Definition::new(vec!["DEFINE(var, VEC(1,2,3,4))".to_string()]);
+        test(
+            def,
+            "var".to_string(),
+            Variable::Vector(vec![
+                Variable::String(String::from("1")),
+                Variable::String(String::from("2")),
+                Variable::String(String::from("3")),
+                Variable::String(String::from("4")),
+            ]),
+        );
+    }
 
-    // #[test]
-    // fn test_parse_array_types_define() {
-    //     let data = r#"
-    //     {
-    //         "name": "John Doe",
-    //         "age": 43,
-    //         "phones": [
-    //             "+44 1234567",
-    //             "+44 2345678"
-    //         ]
-    //     }"#;
-    //     // Parse the string of data into serde_json::Value.
-    //     let v: Value = serde_json::from_str(data).unwrap();
-    //     let def = Definition::new(vec![format!(
-    //         "DEFINE(var, VEC(1, INT(2), FLOAT(3.2), JSON({})))",
-    //         data
-    //     )
-    //     .to_string()]);
-    //     test(
-    //         def,
-    //         "var".to_string(),
-    //         Variable::Vector(vec![
-    //             Variable::String(String::from("1")),
-    //             Variable::Int(2),
-    //             Variable::Float(3.2),
-    //             Variable::Json(v),
-    //         ]),
-    //     );
-    // }
+    #[test]
+    fn test_parse_array_types_define() {
+        let data = r#"
+        {
+            "name": "John Doe",
+            "age": 43,
+            "phones": [
+                "+44 1234567",
+                "+44 2345678"
+            ]
+        }"#;
+        // Parse the string of data into serde_json::Value.
+        let v: Value = serde_json::from_str(data).unwrap();
+        let def = Definition::new(vec![format!(
+            "DEFINE(var, VEC(1, INT(2), FLOAT(3.2), JSON('{}')))",
+            data
+        )
+        .to_string()]);
+        test(
+            def,
+            "var".to_string(),
+            Variable::Vector(vec![
+                Variable::String(String::from("1")),
+                Variable::Int(2),
+                Variable::Float(3.2),
+                Variable::Json(v),
+            ]),
+        );
+    }
 
-    // #[test]
-    // fn test_parse_array_define_extract() {
-    //     let def = Definition::new(vec![
-    //         String::from("DEFINE(var, VEC(1,2,3,4))"),
-    //         String::from("DEFINE(var2, EXTRACT(var, 3))"),
-    //     ]);
-    //     test(def, "var2".to_string(), Variable::String(String::from("4")));
-    // }
+    #[test]
+    fn test_parse_array_define_extract() {
+        let def = Definition::new(vec![
+            String::from("DEFINE(var, VEC(1,2,3,4))"),
+            String::from("DEFINE(var2, EXTRACT(GET(var), 3))"),
+        ]);
+        test(def, "var2".to_string(), Variable::String(String::from("4")));
+    }
 
-    // #[test]
-    // fn test_parse_get_define() {
-    //     let data = r#"{
-    //         "userId": 1,
-    //         "id": 1,
-    //         "title": "delectus aut autem",
-    //         "completed": false
-    //     }"#;
-    //     let v: Value = serde_json::from_str(data).unwrap();
+    #[test]
+    fn test_parse_get_define() {
+        let data = r#"{
+            "userId": 1,
+            "id": 1,
+            "title": "delectus aut autem",
+            "completed": false
+        }"#;
+        let v: Value = serde_json::from_str(data).unwrap();
 
-    //     let def = Definition::new(vec![String::from(
-    //         "DEFINE(var, GET(https://jsonplaceholder.typicode.com/todos/1))",
-    //     )]);
-    //     test(def, "var".to_string(), Variable::Json(v));
-    // }
+        let def = Definition::new(vec![String::from(
+            "DEFINE(var, HTTP('https://jsonplaceholder.typicode.com/todos/1'))",
+        )]);
+        test(def, "var".to_string(), Variable::Json(v));
+    }
 
-    // #[test]
-    // fn test_parse_get_define_extract() {
-    //     let def = Definition::new(vec![
-    //         String::from("DEFINE(var, GET(https://jsonplaceholder.typicode.com/todos/1))"),
-    //         String::from("DEFINE(var2, EXTRACT(var, title))"),
-    //     ]);
-    //     test(
-    //         def,
-    //         "var2".to_string(),
-    //         Variable::String(String::from("delectus aut autem")),
-    //     );
-    // }
+    #[test]
+    fn test_parse_get_define_extract() {
+        let def = Definition::new(vec![
+            String::from("DEFINE(var, HTTP('https://jsonplaceholder.typicode.com/todos/1'))"),
+            String::from("DEFINE(var2, EXTRACT(GET(var), title))"),
+        ]);
+        test(
+            def,
+            "var2".to_string(),
+            Variable::String(String::from("delectus aut autem")),
+        );
+    }
 }

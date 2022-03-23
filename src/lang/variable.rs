@@ -55,15 +55,20 @@ impl Variable {
             | Variable::Float(_)
             | Variable::String(_) => Err("cannot extract"),
             Variable::Vector(ref vec) => {
-                if let Variable::Int(inx) = *f {
-                    let inx = inx as usize;
-                    if vec.len() < inx - 1 {
-                        return Err("index out of range");
+                let inx: usize;
+                match f {
+                    Variable::Int(i) => inx = *i as usize,
+                    Variable::String(s) => {
+                        inx = s.parse().unwrap();
                     }
-                    Ok(vec[inx].clone())
-                } else {
-                    return Err("invalid index");
+                    _ => return Err("invalid index type"),
                 }
+
+                let inx = inx as usize;
+                if vec.len() < inx - 1 {
+                    return Err("index out of range");
+                }
+                Ok(vec[inx].clone())
             }
             Variable::Object(ref obj) => {
                 if let Variable::String(s) = f {
@@ -87,15 +92,4 @@ impl Variable {
             }
         }
     }
-}
-
-// /// Performs blocking request to wanted url and saves result as Variable::Json.
-// fn get(url: &str) -> EvalResult<Option<Variable>> {
-//     let body: Value = blocking::get(url).unwrap().json().unwrap();
-//     Ok(Some(Variable::Json(body)))
-// }
-
-/// Assures that there's only two arguments and returns them.
-fn double_argument(s: &str) -> (&str, &str) {
-    s.split_once(',').unwrap()
 }

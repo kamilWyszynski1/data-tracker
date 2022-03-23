@@ -1,17 +1,14 @@
 use core::panic;
-use std::{
-    any::{Any, TypeId},
-    env::VarError,
-    fmt::{self, Display},
-};
+use std::fmt::{self, Display};
 
-use super::eval::Variable;
+use super::variable::Variable;
 
 #[derive(Debug, PartialEq, Clone)]
+/// Enum for Node type.
 enum NodeEnum {
     None,
-    Keyword(Keyword),
-    Var(String),
+    Keyword(Keyword), // Keyword is a supported function.
+    Var(String),      // Variable name or "default" evaluation of variable which is String.
 }
 
 impl NodeEnum {
@@ -21,6 +18,10 @@ impl NodeEnum {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+/// Node represents single node in lexer chain.
+/// Struct contains value which is type of Node -> var or keyword.
+/// Vector of nodes are all params that were passed to keyword function and will
+/// be evaluated during Node evaluation.
 struct Node {
     value: NodeEnum,
     nodes: Vec<Box<Node>>,
@@ -33,6 +34,7 @@ impl Display for Node {
 }
 
 impl Node {
+    /// Returns default value for Node.
     fn default() -> Self {
         Node {
             value: NodeEnum::default(),
@@ -40,6 +42,7 @@ impl Node {
         }
     }
 
+    /// Creates new Node with NodeEnum::Keyword type.
     fn new_keyword(keyword: Keyword) -> Self {
         Node {
             value: NodeEnum::Keyword(keyword),
@@ -47,6 +50,7 @@ impl Node {
         }
     }
 
+    /// Creates new Node with NodeEnum::Var type.
     fn new_var(var: String) -> Self {
         Node {
             value: NodeEnum::Var(var),
@@ -54,15 +58,23 @@ impl Node {
         }
     }
 
+    /// Adds nodes to node.
     fn add(&mut self, pt: Node) {
         self.nodes.push(Box::new(pt))
     }
 
+    /// Appends node to nodes and return Self.
     fn append(&mut self, n: Node) -> Self {
         self.add(n);
         self.clone()
     }
 
+    /// Evaluates whole tree to a single Variable.
+    /// Function can be chained with each other as shown below:
+    ///   "VEC(1,BOOL(true),3,FLOAT(4.0))"
+    /// this function will go trough tree created from that declaration
+    /// and evaluate root node and all of nodes below in order to return
+    /// single Variable as a result.
     fn eval(&self) -> Variable {
         match self.value {
             NodeEnum::None => todo!(),
@@ -88,9 +100,17 @@ impl Node {
                         }
                         return Variable::Int(sum as isize);
                     }
-                    Keyword::Min => min(nodes),
+                    Keyword::Min => sub(nodes),
                     Keyword::Div => div(nodes),
                     Keyword::Mult => mult(nodes),
+                    Keyword::Vec => return Variable::Vector(nodes),
+                    Keyword::Extract => {
+                        assert_eq!(nodes.len(), 2);
+                        let mut iter = nodes.iter();
+                        let v1 = iter.next().unwrap();
+                        let v2 = iter.next().unwrap();
+                        return v1.extract(v2).unwrap();
+                    }
                     _ => todo!(),
                 }
             }
@@ -99,9 +119,8 @@ impl Node {
     }
 }
 
-fn min(nodes: Vec<Variable>) -> Variable {
-    let mut result = 0.;
-    let mut is_float = false;
+/// Subtracts one Variable from another.
+fn sub(nodes: Vec<Variable>) -> Variable {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -109,32 +128,25 @@ fn min(nodes: Vec<Variable>) -> Variable {
 
     match v1 {
         Variable::Float(f) => {
-            is_float = true;
             if let Variable::Float(f2) = v2 {
-                result = f - f2;
+                return Variable::Float(f - f2);
             } else {
                 panic!("second value is not float")
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                result = (i - i2) as f32;
+                return Variable::Int(i - i2);
             } else {
                 panic!("second value is not float")
             }
         }
         _ => panic!("invalid type for Min"),
     }
-    if is_float {
-        Variable::Float(result)
-    } else {
-        Variable::Int(result as isize)
-    }
 }
 
+/// Divides one Variable by another.
 fn div(nodes: Vec<Variable>) -> Variable {
-    let mut result = 0.;
-    let mut is_float = false;
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -142,32 +154,25 @@ fn div(nodes: Vec<Variable>) -> Variable {
 
     match v1 {
         Variable::Float(f) => {
-            is_float = true;
             if let Variable::Float(f2) = v2 {
-                result = f / f2;
+                return Variable::Float(f / f2);
             } else {
                 panic!("second value is not float")
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                result = (i / i2) as f32;
+                return Variable::Int(i / i2);
             } else {
                 panic!("second value is not float")
             }
         }
         _ => panic!("invalid type for Min"),
     }
-    if is_float {
-        Variable::Float(result)
-    } else {
-        Variable::Int(result as isize)
-    }
 }
 
+/// Multiplies one Variable by another.
 fn mult(nodes: Vec<Variable>) -> Variable {
-    let mut result = 0.;
-    let mut is_float = false;
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -175,29 +180,24 @@ fn mult(nodes: Vec<Variable>) -> Variable {
 
     match v1 {
         Variable::Float(f) => {
-            is_float = true;
             if let Variable::Float(f2) = v2 {
-                result = f * f2;
+                return Variable::Float(f * f2);
             } else {
                 panic!("second value is not float")
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                result = (i * i2) as f32;
+                return Variable::Int(i * i2);
             } else {
                 panic!("second value is not float")
             }
         }
         _ => panic!("invalid type for Min"),
     }
-    if is_float {
-        Variable::Float(result)
-    } else {
-        Variable::Int(result as isize)
-    }
 }
 
+/// Parses single Variable to given type.
 fn parse_single_param<T>(nodes: Vec<Variable>) -> T
 where
     T: std::str::FromStr + std::fmt::Debug,
@@ -208,6 +208,7 @@ where
     parse_type(param)
 }
 
+/// Parses Variable to given type.
 fn parse_type<T>(v: &Variable) -> T
 where
     T: std::str::FromStr + std::fmt::Debug,
@@ -219,12 +220,13 @@ where
     panic!("param is not Variable::String")
 }
 
+/// All supported keyword that can be used in steps declarations.
 #[derive(PartialEq, Debug, Clone)]
 enum Keyword {
-    None,
-    Define,
-    Json,
-    Vec,
+    None,   // default value, not supported by language.
+    Define, // defines new variable: DEFINE(var, 1).
+    Json,   // returns Variable::Json: JSON("{}").
+    Vec,    // returns Variable::Vec: VEC(1,2,3,4).
     Extract,
     Get,
     Bool,
@@ -262,6 +264,7 @@ impl Keyword {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Represents one independent piece of declaration.
 enum Token {
     LeftBracket,
     RightBracket,
@@ -269,6 +272,8 @@ enum Token {
     Keyword(Keyword),
     Var(String),
 }
+
+/// Takes care of creating Tokens from wanted declaration.
 struct Lexer {
     text: String,
     pos: usize,
@@ -295,6 +300,7 @@ impl Lexer {
         }
     }
 
+    /// Create tokens from wanted declaration.
     fn make_tokens(&mut self) -> Vec<Token> {
         let mut tokens: Vec<Token> = vec![];
 
@@ -334,6 +340,7 @@ impl Lexer {
     }
 }
 
+/// Takes vector of Tokens created by Lexer and parses them into Nodes tree.
 struct Parser {
     tokens: Vec<Token>,
     token_inx: usize,
@@ -361,7 +368,7 @@ impl Parser {
         }
     }
 
-    // "DEFINE(var, VEC(1,BOOL(2),3,FLOAT(4.0)))"
+    /// Creates Nodes tree from given Tokens.
     fn parse(&mut self) -> Node {
         let mut pt: Node;
         if let Token::Keyword(s) = &self.current_token {
@@ -377,7 +384,7 @@ impl Parser {
                     return pt;
                 }
                 Token::Var(ref v) => pt.add(Node::new_var(v.clone())),
-                Token::Keyword(ref kw) => pt.add(self.parse()),
+                Token::Keyword(_) => pt.add(self.parse()),
                 _ => {}
             }
         }
@@ -388,8 +395,8 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use crate::lang::{
-        eval::Variable,
         lexer::{Keyword, Node, Parser},
+        variable::Variable,
     };
 
     use super::Lexer;
@@ -498,5 +505,36 @@ mod tests {
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
         assert_eq!(n5.eval(), Variable::Int(-40));
+    }
+
+    #[test]
+    fn test_eval_complex() {
+        let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
+
+        let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
+        let n3 = Node::new_keyword(Keyword::Add)
+            .append(n1)
+            .append(n2.clone());
+        let n4 = Node::new_keyword(Keyword::Mult)
+            .append(n3)
+            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+        assert_eq!(n4.eval(), Variable::Float(313.25));
+    }
+
+    #[test]
+    fn test_parse_eval() {
+        let mut lexer = Lexer::new(String::from("VEC(1,BOOL(true),3,FLOAT(4.0))"));
+        let tokens = lexer.make_tokens();
+        let mut parser = Parser::new(tokens);
+        let got = parser.parse();
+        assert_eq!(
+            got.eval(),
+            Variable::Vector(vec![
+                Variable::String(String::from("1")),
+                Variable::Bool(true),
+                Variable::String(String::from("3")),
+                Variable::Float(4.0)
+            ])
+        )
     }
 }

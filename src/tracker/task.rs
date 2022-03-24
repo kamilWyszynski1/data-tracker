@@ -4,7 +4,7 @@ use std::vec::Vec;
 use uuid::Uuid;
 
 use crate::data::getter::getter_from_url;
-use crate::lang::language::Definition;
+use crate::lang::engine::Definition;
 use crate::web::task::TaskCreateRequest;
 
 // TrackedData is a type wrap for data that is being tracked. It'll be written as string anyway.
@@ -193,6 +193,10 @@ impl TrackingTask {
 
     pub fn starting_position(&self) -> String {
         self.starting_position.clone()
+    }
+
+    pub fn definition(&self) -> &Definition {
+        &self.definition
     }
 
     /// returns String that can be put into logs.

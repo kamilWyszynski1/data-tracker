@@ -1,8 +1,11 @@
 use super::manager::Command;
 use super::task::{Direction, TrackedData, TrackingTask};
+use crate::lang::engine::{Definition, Engine};
+use crate::lang::variable::Variable;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
+use log::error;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
@@ -143,8 +146,10 @@ where
     async fn handle(&self) {
         info!("Handling task {}", self.task.info());
 
-        let result = self.task.data();
-        match result {
+        let result = self.task.data().unwrap();
+        let evaluated = evaluate_data(result, self.task.definition());
+
+        match evaluated {
             Ok(data) => {
                 let last_place = self.db.get(&self.task.id()).await.unwrap_or(0);
                 let data_len = data.len() as u32;
@@ -177,6 +182,30 @@ where
                 self.task.run_callbacks(Err(e));
             }
         }
+    }
+}
+
+/// Function creates new engine and calls fire method for given Definition.
+fn evaluate_data(data: Vec<String>, definition: &Definition) -> Result<Vec<String>, &'static str> {
+    let mut e = Engine::new(Variable::Vector(
+        data.into_iter().map(|s| Variable::String(s)).collect(),
+    ));
+    e.fire(definition)?;
+    if let Variable::Vector(v) = e.get(String::from("OUT")) {
+        let a: Vec<String> = v
+            .into_iter()
+            .map(|v| {
+                if let Variable::String(s) = v {
+                    s.to_string()
+                } else {
+                    error!("skipping element, not String");
+                    String::from("")
+                }
+            })
+            .collect();
+        Ok(a)
+    } else {
+        Err("invalid returned type from evaluation")
     }
 }
 

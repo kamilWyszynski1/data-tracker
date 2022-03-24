@@ -88,7 +88,7 @@ where
             // lock dropped here.
         }
         let mut counter = 0; // invocations counter. Will not be used if invocations is None.
-        let mut timer = tokio::time::interval(self.task.get_interval());
+        let mut timer = tokio::time::interval(self.task.interval());
         info!("handler starting with: {} task", self.task.info());
         while !self.shutdown.is_shutdown() {
             tokio::select! {
@@ -116,7 +116,7 @@ where
                     match *state{
                         State::Running => {
                             self.handle().await;
-                            if let Some(invocations) = self.task.get_invocations() {
+                            if let Some(invocations) = self.task.invocations() {
                                 counter += 1;
                                 if counter >= invocations {
                                     break;
@@ -143,7 +143,7 @@ where
     async fn handle(&self) {
         info!("Handling task {}", self.task.info());
 
-        let result = self.task.get_data();
+        let result = self.task.data();
         match result {
             Ok(data) => {
                 let last_place = self.db.get(&self.task.id()).await.unwrap_or(0);
@@ -153,13 +153,13 @@ where
                 let result = self
                     .api
                     .write(
-                        create_write_vec(self.task.get_direction(), data.clone()),
-                        &self.task.get_spreadsheet_id(),
+                        create_write_vec(self.task.direction(), data.clone()),
+                        &self.task.spreadsheet_id(),
                         &create_range(
                             &last_place, // TODO: calculations are not working properly.
-                            &self.task.get_starting_position(),
-                            &self.task.get_sheet(),
-                            self.task.get_direction(),
+                            &self.task.starting_position(),
+                            &self.task.sheet(),
+                            self.task.direction(),
                             data_len,
                         ),
                     )

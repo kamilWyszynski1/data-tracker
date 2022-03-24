@@ -6,11 +6,6 @@ use serde::Deserialize;
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
-#[get("/")]
-pub fn index() -> &'static str {
-    "Hello, world!"
-}
-
 #[derive(Deserialize)]
 pub struct TaskCommandRequest {
     id: String,

@@ -3,11 +3,15 @@ use std::time::Duration;
 use std::vec::Vec;
 use uuid::Uuid;
 
+use crate::data::getter::getter_from_url;
+use crate::lang::language::Definition;
+use crate::web::task::TaskCreateRequest;
+
 // TrackedData is a type wrap for data that is being tracked. It'll be written as string anyway.
 pub type TrackedData = Vec<String>;
 
 // GetDataFn is a type wrap for a function that returns a TrackedData.
-type GetDataFn = fn() -> Result<TrackedData, &'static str>;
+pub type GetDataFn = fn() -> Result<TrackedData, &'static str>;
 
 #[derive(Clone, Debug, Copy)]
 // Direction indicates direction of written data.
@@ -15,6 +19,17 @@ pub enum Direction {
     Vertical,   // data will be written in columns.
     Horizontal, // data will be written in rows.
 }
+
+impl Direction {
+    pub fn from_string(s: &str) -> Result<Self, &'static str> {
+        match s.to_lowercase().as_str() {
+            "vertical" | "v" => Ok(Self::Vertical),
+            "horizontal" | "" => Ok(Self::Horizontal),
+            _ => Err("invalid direction"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Copy, PartialEq)]
 // TimestampPosition indicates position of timestamp in the data.
 pub enum TimestampPosition {
@@ -42,6 +57,7 @@ pub struct TrackingTask {
     with_timestamp: bool, // whether to write timestamp.
     timestamp_position: TimestampPosition,
     invocations: Option<i32>, // number of invocations.
+    definition: Definition,   // definition of handling data.
 
     pub callbacks: Option<Vec<CallbackFn>>,
 }
@@ -75,6 +91,7 @@ impl TrackingTask {
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
+            definition: Definition::new(vec![]),
         }
     }
 
@@ -158,7 +175,7 @@ impl TrackingTask {
         self.invocations
     }
 
-    pub fn get_id(&self) -> Uuid {
+    pub fn id(&self) -> Uuid {
         self.id
     }
 
@@ -185,6 +202,28 @@ impl TrackingTask {
         } else {
             format!("{}", self.id.to_simple())
         }
+    }
+
+    pub fn from_task_create_request(tcr: TaskCreateRequest) -> Result<Self, &'static str> {
+        let direction = Direction::from_string(&tcr.direction)?;
+        let interval = Duration::new(tcr.interval_secs, 0);
+
+        Ok(TrackingTask {
+            id: Uuid::new_v4(),
+            name: Some(tcr.name),
+            description: Some(tcr.description),
+            spreadsheet_id: tcr.spreadsheet_id,
+            sheet: tcr.sheet,
+            starting_position: tcr.starting_position,
+            direction,
+            interval,
+            callbacks: None,
+            with_timestamp: false,
+            timestamp_position: TimestampPosition::None,
+            invocations: None,
+            definition: Definition::new(vec![]),
+            get_data_fn: getter_from_url(&tcr.url),
+        })
     }
 }
 

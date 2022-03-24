@@ -7,7 +7,7 @@ use uuid::Uuid;
 pub type TrackedData = Vec<String>;
 
 // GetDataFn is a type wrap for a function that returns a TrackedData.
-type GetDataFn = fn() -> Result<TrackedData, String>;
+type GetDataFn = fn() -> Result<TrackedData, &'static str>;
 
 #[derive(Clone, Debug, Copy)]
 // Direction indicates direction of written data.
@@ -24,7 +24,7 @@ pub enum TimestampPosition {
 }
 
 // CallbackFn is a type wrap for callback function.
-type CallbackFn = fn(Result<(), String>) -> ();
+type CallbackFn = fn(Result<(), &'static str>) -> ();
 
 #[derive(Clone, Debug)]
 // TrackingTask holds information about tracking task.
@@ -121,7 +121,7 @@ impl TrackingTask {
     }
 
     // runs task callbacks on result.
-    pub fn run_callbacks(&self, result: Result<(), String>) {
+    pub fn run_callbacks(&self, result: Result<(), &'static str>) {
         info!("running callbacks: {:?}", self.callbacks);
         if let Some(callbacks) = &self.callbacks {
             for callback in callbacks {
@@ -130,7 +130,7 @@ impl TrackingTask {
         }
     }
 
-    pub fn get_data(&self) -> Result<TrackedData, String> {
+    pub fn get_data(&self) -> Result<TrackedData, &'static str> {
         (self.get_data_fn)()
     }
 
@@ -189,7 +189,7 @@ impl TrackingTask {
 }
 
 // random_value_generator generates random values.
-pub fn random_value_generator() -> Result<TrackedData, String> {
+pub fn random_value_generator() -> Result<TrackedData, &'static str> {
     let mut rng = rand::thread_rng();
     let mut vec = vec![];
 
@@ -204,7 +204,7 @@ mod test {
     use crate::tracker::task::{Direction, TrackedData, TrackingTask};
 
     #[allow(dead_code)]
-    fn test_get_data_fn() -> Result<TrackedData, String> {
+    fn test_get_data_fn() -> Result<TrackedData, &'static str> {
         Ok(vec!["test".to_string()])
     }
     #[test]
@@ -217,7 +217,7 @@ mod test {
             test_get_data_fn,
             std::time::Duration::from_secs(1),
         );
-        tt = tt.with_callback(|res: Result<(), String>| {
+        tt = tt.with_callback(|res: Result<(), &'static str>| {
             assert!(res.is_ok());
         });
         assert!(tt.callbacks.is_some());

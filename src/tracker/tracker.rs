@@ -100,7 +100,7 @@ mod tests {
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
 
-    fn test_get_data_fn() -> Result<TrackedData, String> {
+    fn test_get_data_fn() -> Result<TrackedData, &'static str> {
         Ok(vec!["test".to_string()])
     }
 
@@ -108,15 +108,15 @@ mod tests {
     struct TestAPI {
         check: fn(Vec<Vec<String>>, &str, &str),
         fail: bool,
-        fail_msg: String,
+        fail_msg: &'static str,
     }
 
     #[async_trait]
     impl API for TestAPI {
-        async fn write(&self, v: Vec<Vec<String>>, s: &str, r: &str) -> Result<(), String> {
+        async fn write(&self, v: Vec<Vec<String>>, s: &str, r: &str) -> Result<(), &'static str> {
             (self.check)(v, s, r);
             if self.fail {
-                return Err(self.fail_msg.clone());
+                return Err(self.fail_msg);
             }
             Ok(())
         }
@@ -126,7 +126,7 @@ mod tests {
 
     #[async_trait]
     impl API for MockAPI {
-        async fn write(&self, _: Vec<Vec<String>>, _: &str, _: &str) -> Result<(), String> {
+        async fn write(&self, _: Vec<Vec<String>>, _: &str, _: &str) -> Result<(), &'static str> {
             Ok(())
         }
     }
@@ -140,7 +140,7 @@ mod tests {
     #[derive(Clone)]
     struct TestPersistance {}
     impl Persistance for TestPersistance {
-        fn write(&mut self, _: Uuid, _: u32) -> Result<(), String> {
+        fn write(&mut self, _: Uuid, _: u32) -> Result<(), &'static str> {
             Ok(())
         }
         fn read(&self, _: &Uuid) -> Option<u32> {
@@ -169,9 +169,9 @@ mod tests {
             panic!("failed")
         }
 
-        fn callback(_: Result<(), String>) {}
+        fn callback(_: Result<(), &'static str>) {}
 
-        let c = |tx: oneshot::Sender<bool>| -> fn(Result<(), String>) {
+        let c = |tx: oneshot::Sender<bool>| -> fn(Result<(), &'static str>) {
             info!("callback");
             tx.send(true).unwrap();
             callback
@@ -181,11 +181,13 @@ mod tests {
         let (send, receive) = channel::<TrackingTask>(1);
         let (_cmd_send, cmd_receive) = channel::<TaskCommand>(1);
 
+        let fail_msg = "";
+
         let mut t = Tracker::new(
             TestAPI {
                 check: check_cases,
                 fail: false,
-                fail_msg: "".to_string(),
+                fail_msg: fail_msg,
             },
             TestPersistance {},
             receive,

@@ -22,13 +22,13 @@ where
         self.shared.lock().await.read(key)
     }
 
-    pub async fn save(&self, key: Uuid, value: u32) -> Result<(), String> {
+    pub async fn save(&self, key: Uuid, value: u32) -> Result<(), &'static str> {
         self.shared.lock().await.write(key, value)
     }
 }
 
 // Persistance is a trait for storing info about the current state of tracked data.
 pub trait Persistance {
-    fn write(&mut self, key: Uuid, value: u32) -> Result<(), String>;
+    fn write(&mut self, key: Uuid, value: u32) -> Result<(), &'static str>;
     fn read(&self, key: &Uuid) -> Option<u32>;
 }

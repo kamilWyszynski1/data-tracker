@@ -24,7 +24,7 @@ impl Default for InMemoryPersistance {
 }
 
 impl Persistance for InMemoryPersistance {
-    fn write(&mut self, key: Uuid, value: u32) -> Result<(), String> {
+    fn write(&mut self, key: Uuid, value: u32) -> Result<(), &'static str> {
         info!("writing: {}{}", key.to_simple(), value);
         self.data.insert(key, value);
         Ok(())

@@ -53,7 +53,7 @@ async fn main() {
         Duration::from_secs(30),
     )
     .with_name("TASK_1".to_string())
-    .with_callback(|r: std::result::Result<(), String>| info!("callback: {:?}", r));
+    .with_callback(|r: std::result::Result<(), &'static str>| info!("callback: {:?}", r));
     assert!(send.send(task).await.is_ok());
 
     let rocket = rocket(cmd_send);

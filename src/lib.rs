@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod data;
 pub mod lang;
 pub mod persistance;
 pub mod shutdown;

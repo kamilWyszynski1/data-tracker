@@ -11,7 +11,7 @@ pub trait API {
         values: Vec<Vec<String>>,
         sheet_id: &str,
         range: &str,
-    ) -> Result<(), String>;
+    ) -> Result<(), &'static str>;
 }
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ impl API for APIWrapper {
         values: Vec<Vec<String>>,
         sheet_id: &str,
         range: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), &'static str> {
         let req = ValueRange {
             values: Some(values),
             ..Default::default()
@@ -47,7 +47,7 @@ impl API for APIWrapper {
 
         return match result {
             Err(e) => match e {
-                Error::Failure(res) => Err(read_response_body(res).await.unwrap()),
+                Error::Failure(res) => Err("failure"),
                 // The Error enum provides details about what exactly> happened.
                 // You can also just use its `Debug`, `Display` or `Error` traits
                 Error::HttpError(_)
@@ -58,7 +58,7 @@ impl API for APIWrapper {
                 | Error::UploadSizeLimitExceeded(_, _)
                 | Error::BadRequest(_)
                 | Error::FieldClash(_)
-                | Error::JsonDecodeError(_, _) => Err(format!("{:?}", e)),
+                | Error::JsonDecodeError(_, _) => Err("error"),
             },
             Ok(_) => Ok(()),
         };

@@ -77,7 +77,7 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
-                    let receiver = self.manager.add_new_mapping(task.get_id());
+                    let receiver = self.manager.add_new_mapping(task.id());
                     let mut handler = TaskHandler::new(task, Db::new(self.persistance.clone()), Shutdown::new(self.notify_shutdown.subscribe()), Arc::new(self.api.clone()), receiver);
                     spawned.push(tokio::task::spawn(async move {handler.start().await}));
                 }

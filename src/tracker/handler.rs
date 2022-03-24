@@ -146,7 +146,7 @@ where
         let result = self.task.get_data();
         match result {
             Ok(data) => {
-                let last_place = self.db.get(&self.task.get_id()).await.unwrap_or(0);
+                let last_place = self.db.get(&self.task.id()).await.unwrap_or(0);
                 let data_len = data.len() as u32;
                 info!("last_place: {}, data_len: {}", last_place, data_len);
 
@@ -165,11 +165,7 @@ where
                     )
                     .await;
                 info!("saving to db");
-                if let Err(err) = self
-                    .db
-                    .save(self.task.get_id(), data_len + last_place)
-                    .await
-                {
+                if let Err(err) = self.db.save(self.task.id(), data_len + last_place).await {
                     info!("save failed");
                     self.task.run_callbacks(Err(err));
                 } else {

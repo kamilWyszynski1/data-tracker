@@ -1,4 +1,4 @@
-use super::{language::State, variable::Variable};
+use super::{engine::Engine, variable::Variable};
 use crate::lang::variable::value_object_to_variable_object;
 use core::panic;
 use serde_json::Value;
@@ -23,7 +23,7 @@ impl NodeEnum {
 /// Struct contains value which is type of Node -> var or keyword.
 /// Vector of nodes are all params that were passed to keyword function and will
 /// be evaluated during Node evaluation.
-struct Node {
+pub struct Node {
     value: NodeEnum,
     nodes: Vec<Box<Node>>,
 }
@@ -76,7 +76,7 @@ impl Node {
     /// this function will go trough tree created from that declaration
     /// and evaluate root node and all of nodes below in order to return
     /// single Variable as a result.
-    pub fn eval(&self, state: &mut State) -> Variable {
+    pub fn eval(&self, state: &mut Engine) -> Variable {
         match self.value {
             NodeEnum::None => todo!(),
             NodeEnum::Keyword(ref keyword) => {
@@ -218,7 +218,7 @@ fn extract(nodes: &Vec<Variable>) -> Variable {
 }
 
 // Defines new variable and writes it to a state.
-fn define(nodes: &Vec<Variable>, state: &mut State) -> Variable {
+fn define(nodes: &Vec<Variable>, state: &mut Engine) -> Variable {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -234,7 +234,7 @@ fn define(nodes: &Vec<Variable>, state: &mut State) -> Variable {
 }
 
 // Returns declared variable.
-fn get(nodes: &Vec<Variable>, state: &State) -> Variable {
+fn get(nodes: &Vec<Variable>, state: &Engine) -> Variable {
     let v = parse_single_param::<String>(nodes);
 
     state.get(v).clone()
@@ -288,7 +288,7 @@ where
 
 /// All supported keyword that can be used in steps declarations.
 #[derive(PartialEq, Debug, Clone)]
-enum Keyword {
+pub enum Keyword {
     None,   // default value, not supported by language.
     Define, // defines new variable: DEFINE(var, 1).
     Get,    // returns defined variable: VAR(var).
@@ -334,7 +334,7 @@ impl Keyword {
 
 #[derive(Debug, Clone, PartialEq)]
 /// Represents one independent piece of declaration.
-enum Token {
+pub enum Token {
     LeftBracket,
     RightBracket,
     Comma,
@@ -343,17 +343,17 @@ enum Token {
 }
 
 /// Takes care of creating Tokens from wanted declaration.
-struct Lexer {
-    text: String,
+pub struct Lexer<'a> {
+    text: &'a str,
     pos: usize,
     current_char: char,
     done: bool,
 }
 
-impl Lexer {
-    fn new(text: String) -> Self {
+impl<'a> Lexer<'a> {
+    pub fn new(text: &'a str) -> Self {
         Lexer {
-            text: text.clone(),
+            text: text,
             pos: 0,
             current_char: text.chars().next().unwrap(),
             done: false,
@@ -374,7 +374,7 @@ impl Lexer {
     }
 
     /// Create tokens from wanted declaration.
-    fn make_tokens(&mut self) -> Vec<Token> {
+    pub fn make_tokens(&mut self) -> Vec<Token> {
         let mut tokens: Vec<Token> = vec![];
 
         while !self.done {
@@ -434,7 +434,7 @@ impl Lexer {
 }
 
 /// Takes vector of Tokens created by Lexer and parses them into Nodes tree.
-struct Parser {
+pub struct Parser {
     tokens: Vec<Token>,
     token_inx: usize,
     current_token: Token,
@@ -442,7 +442,7 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Token>) -> Self {
         let t = tokens.first().unwrap().clone();
         Parser {
             tokens,
@@ -462,7 +462,7 @@ impl Parser {
     }
 
     /// Creates Nodes tree from given Tokens.
-    fn parse(&mut self) -> Node {
+    pub fn parse(&mut self) -> Node {
         let mut pt: Node;
         if let Token::Keyword(s) = &self.current_token {
             pt = Node::new_keyword(s.clone());
@@ -488,7 +488,7 @@ impl Parser {
 mod tests {
     use super::Lexer;
     use crate::lang::{
-        language::{Definition, State},
+        engine::{Definition, Engine},
         lexer::{Keyword, Node, Parser, Token},
         variable::Variable,
     };
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn test_simple_lexer() {
-        let mut lexer = Lexer::new(String::from("DEFINE)"));
+        let mut lexer = Lexer::new("DEFINE)");
         let tokens = lexer.make_tokens();
         let wanted: Vec<Token> = vec![Token::Keyword(Keyword::Define), Token::RightBracket];
         assert_eq!(tokens, wanted);
@@ -513,7 +513,8 @@ mod tests {
             "n":"nvalue",
             "e":"evalue"
         }"#;
-        let mut lexer = Lexer::new(format!("OBJECT('{}')", map_str).to_string());
+        let t = format!("OBJECT('{}')", map_str);
+        let mut lexer = Lexer::new(&t);
         let tokens = lexer.make_tokens();
         let wanted: Vec<Token> = vec![
             Token::Keyword(Keyword::Object),
@@ -526,7 +527,7 @@ mod tests {
 
     #[test]
     fn test_lexer() {
-        let mut lexer = Lexer::new(String::from("DEFINE(var, VEC(1,BOOL(2),3,FLOAT(4.0)))"));
+        let mut lexer = Lexer::new("DEFINE(var, VEC(1,BOOL(2),3,FLOAT(4.0)))");
 
         let tokens = lexer.make_tokens();
         let wanted: Vec<Token> = vec![
@@ -574,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_lexer_v2() {
-        let mut lexer = Lexer::new(String::from("DEFINE(var3, EXTRACT(var, use))"));
+        let mut lexer = Lexer::new("DEFINE(var3, EXTRACT(var, use))");
         let tokens = lexer.make_tokens();
         println!("{:?}", tokens);
 
@@ -594,7 +595,7 @@ mod tests {
 
     #[test]
     fn test_lexer_v3() {
-        let tokens = Lexer::new(String::from("DEFINE(var3, qwdqw)")).make_tokens();
+        let tokens = Lexer::new("DEFINE(var3, qwdqw)").make_tokens();
         println!("{:?}", tokens);
         let got = Parser::new(tokens).parse();
 
@@ -607,7 +608,7 @@ mod tests {
 
     #[test]
     fn test_eval() {
-        let mut state = State::default();
+        let mut state = Engine::default();
 
         let var = String::from("var");
         let n1 = Node::new_var(var.clone());
@@ -670,7 +671,7 @@ mod tests {
 
     #[test]
     fn test_eval_complex() {
-        let mut state = State::default();
+        let mut state = Engine::default();
 
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
 
@@ -686,9 +687,9 @@ mod tests {
 
     #[test]
     fn test_parse_eval() {
-        let mut state = State::default();
+        let mut state = Engine::default();
 
-        let mut lexer = Lexer::new(String::from("VEC(1,BOOL(true),3,FLOAT(4.0))"));
+        let mut lexer = Lexer::new("VEC(1,BOOL(true),3,FLOAT(4.0))");
         let tokens = lexer.make_tokens();
         let mut parser = Parser::new(tokens);
         let got = parser.parse();
@@ -703,16 +704,16 @@ mod tests {
         )
     }
 
-    fn fire(def: Definition, state: &mut State) {
+    fn fire(def: Definition, state: &mut Engine) {
         def.into_iter().for_each(|s| {
-            let tokens = Lexer::new(s).make_tokens();
+            let tokens = Lexer::new(&s).make_tokens();
             let root = Parser::new(tokens).parse();
             root.eval(state);
         });
     }
     /// Runs single test scenario.
     fn test(def: Definition, var_name: String, value: Variable) {
-        let mut state = State::default();
+        let mut state = Engine::default();
         fire(def, &mut state);
         assert_eq!(*state.get(var_name), value);
     }
@@ -760,7 +761,7 @@ mod tests {
         map.insert(String::from("n"), Variable::String(String::from("nvalue")));
         map.insert(String::from("e"), Variable::String(String::from("evalue")));
 
-        let mut state = State::default();
+        let mut state = Engine::default();
         let def = Definition::new(vec![
             format!("DEFINE(var, OBJECT('{}'))", map_str).to_string(),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
@@ -805,7 +806,7 @@ mod tests {
         );
         let obj = Variable::Object(embedded);
         map.insert(String::from("kty"), obj.clone());
-        let mut state = State::default();
+        let mut state = Engine::default();
         let def = Definition::new(vec![
             format!("DEFINE(var, object('{}'))", map_str).to_string(),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
@@ -829,7 +830,7 @@ mod tests {
         // Parse the string of data into serde_json::Value.
         let v: Value = serde_json::from_str(data).unwrap();
 
-        let mut state = State::default();
+        let mut state = Engine::default();
         let def = Definition::new(vec![
             format!("DEFINE(var, JSON('{}'))", data).to_string(),
             "DEFINE(var2, EXTRACT(GET(var), name))".to_string(),

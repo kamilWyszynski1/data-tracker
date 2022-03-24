@@ -33,7 +33,7 @@ jobs:
   build:
     docker:
       - image: cimg/rust:1.58.0
-    resource_class: small
+    resource_class: medium
     steps:
       - checkout
       - setup-sccache
@@ -49,4 +49,3 @@ jobs:
           name: fmt
           command: "cargo fmt"
       - save-sccache-cache
-    parallelism: 3

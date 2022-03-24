@@ -1,10 +1,4 @@
-use datatracker_rust::{
-    data::kafka::{KConsumer, Producer},
-    tracker::task::TrackingTask,
-};
-
-#[macro_use]
-extern crate log;
+use datatracker_rust::data::kafka::{KConsumer, Producer};
 
 #[tokio::main]
 async fn main() {

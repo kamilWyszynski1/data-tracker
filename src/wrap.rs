@@ -47,7 +47,7 @@ impl API for APIWrapper {
 
         return match result {
             Err(e) => match e {
-                Error::Failure(res) => Err("failure"),
+                Error::Failure(_res) => Err("failure"),
                 // The Error enum provides details about what exactly> happened.
                 // You can also just use its `Debug`, `Display` or `Error` traits
                 Error::HttpError(_)

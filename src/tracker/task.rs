@@ -48,7 +48,7 @@ pub struct TrackingTask {
     name: Option<String>,        // task name.
     description: Option<String>, // task description.
 
-    get_data_fn: GetDataFn,    // function that returns data to be written.
+    data_fn: GetDataFn,        // function that returns data to be written.
     spreadsheet_id: String,    // spreadsheet where data will be written.
     starting_position: String, // starting position of data in the spreadsheet. A1 notation.
     sheet: String,             // exact sheet of spreadsheet. Default is empty, first sheet.
@@ -69,7 +69,7 @@ impl TrackingTask {
         sheet: String,
         starting_position: String,
         direction: Direction,
-        get_data_fn: GetDataFn,
+        data_fn: GetDataFn,
         interval: Duration,
     ) -> TrackingTask {
         assert_ne!(spreadsheet_id, "", "spreadsheet_id cannot be empty");
@@ -81,7 +81,7 @@ impl TrackingTask {
             id: Uuid::new_v4(),
             name: None,
             description: None,
-            get_data_fn,
+            data_fn,
             spreadsheet_id,
             sheet,
             starting_position,
@@ -147,11 +147,11 @@ impl TrackingTask {
         }
     }
 
-    pub fn get_data(&self) -> Result<TrackedData, &'static str> {
-        (self.get_data_fn)()
+    pub fn data(&self) -> Result<TrackedData, &'static str> {
+        (self.data_fn)()
     }
 
-    pub fn get_name(&self) -> &str {
+    pub fn name(&self) -> &str {
         if let Some(name) = &self.name {
             name
         } else {
@@ -159,7 +159,7 @@ impl TrackingTask {
         }
     }
 
-    pub fn get_description(&self) -> &str {
+    pub fn description(&self) -> &str {
         if let Some(name) = &self.description {
             name
         } else {
@@ -167,11 +167,11 @@ impl TrackingTask {
         }
     }
 
-    pub fn get_interval(&self) -> Duration {
+    pub fn interval(&self) -> Duration {
         self.interval
     }
 
-    pub fn get_invocations(&self) -> Option<i32> {
+    pub fn invocations(&self) -> Option<i32> {
         self.invocations
     }
 
@@ -179,19 +179,19 @@ impl TrackingTask {
         self.id
     }
 
-    pub fn get_direction(&self) -> Direction {
+    pub fn direction(&self) -> Direction {
         self.direction
     }
 
-    pub fn get_spreadsheet_id(&self) -> String {
+    pub fn spreadsheet_id(&self) -> String {
         self.spreadsheet_id.clone()
     }
 
-    pub fn get_sheet(&self) -> String {
+    pub fn sheet(&self) -> String {
         self.sheet.clone()
     }
 
-    pub fn get_starting_position(&self) -> String {
+    pub fn starting_position(&self) -> String {
         self.starting_position.clone()
     }
 
@@ -222,7 +222,7 @@ impl TrackingTask {
             timestamp_position: TimestampPosition::None,
             invocations: None,
             definition: Definition::new(vec![]),
-            get_data_fn: getter_from_url(&tcr.url),
+            data_fn: getter_from_url(&tcr.url),
         })
     }
 }
@@ -274,8 +274,8 @@ mod test {
             std::time::Duration::from_secs(1),
         );
         tt = tt.with_name("test".to_string());
-        assert!(tt.get_name() != "");
-        assert_eq!(tt.get_name(), "test")
+        assert!(tt.name() != "");
+        assert_eq!(tt.name(), "test")
     }
 
     #[test]
@@ -289,6 +289,6 @@ mod test {
             std::time::Duration::from_secs(1),
         );
         tt = tt.with_description("test".to_string());
-        assert_eq!(tt.get_description(), "test")
+        assert_eq!(tt.description(), "test")
     }
 }

@@ -17,9 +17,9 @@ where
     P: 'static + Persistance + Send + Clone,
 {
     /// Performs write of a data.
-    api: A,
+    api: Arc<A>,
     /// Saves last state of handled task.
-    persistance: P,
+    db: Db<P>,
     /// Listen for incoming TrackingTask to handle.
     task_channel: Receiver<TrackingTask>,
     /// Listen for incoming Command for Task to handle.
@@ -55,10 +55,10 @@ where
         task_command_channel: Receiver<TaskCommand>,
     ) -> Self {
         Tracker {
-            api,
+            api: Arc::new(api),
             task_channel,
             task_command_channel,
-            persistance,
+            db: Db::new(persistance),
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
             manager: SenderManager::default(),
@@ -78,7 +78,7 @@ where
                 }
                 Some(task) = self.task_channel.recv() => {
                     let receiver = self.manager.add_new_mapping(task.id());
-                    let mut handler = TaskHandler::new(task, Db::new(self.persistance.clone()), Shutdown::new(self.notify_shutdown.subscribe()), Arc::new(self.api.clone()), receiver);
+                    let mut handler = TaskHandler::new(task, self.db.clone(), Shutdown::new(self.notify_shutdown.subscribe()), self.api.clone(), receiver);
                     spawned.push(tokio::task::spawn(async move {handler.start().await}));
                 }
                 Some(task_cmd) = self.task_command_channel.recv() => {

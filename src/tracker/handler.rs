@@ -1,11 +1,11 @@
 use super::manager::Command;
-use super::task::{Direction, TrackedData, TrackingTask};
+use super::task::{Direction, InputData, TrackingTask};
 use crate::lang::engine::{Definition, Engine};
 use crate::lang::variable::Variable;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
-use log::{error, info};
+use log::info;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
@@ -146,13 +146,15 @@ where
     async fn handle(&self) {
         info!("Handling task {}", self.task.info());
 
-        let result = self.task.data().unwrap();
+        let result = self.task.data().await.unwrap();
         let evaluated = evaluate_data(result, self.task.definition());
 
         info!("evaluated from engine: {:?}", &evaluated);
 
         match evaluated {
             Ok(data) => {
+                let data = create_write_vec(self.task.direction(), data);
+
                 let last_place = self.db.get(&self.task.id()).await.unwrap_or(0);
                 let data_len = data.len() as u32;
                 info!("last_place: {}, data_len: {}", last_place, data_len);
@@ -160,10 +162,10 @@ where
                 let result = self
                     .api
                     .write(
-                        create_write_vec(self.task.direction(), data.clone()),
+                        data,
                         &self.task.spreadsheet_id(),
                         &create_range(
-                            &last_place, // TODO: calculations are not working properly.
+                            last_place, // TODO: calculations are not working properly.
                             &self.task.starting_position(),
                             &self.task.sheet(),
                             self.task.direction(),
@@ -188,53 +190,36 @@ where
 }
 
 /// Function creates new engine and calls fire method for given Definition.
-fn evaluate_data(data: Vec<String>, definition: &Definition) -> Result<Vec<String>, &'static str> {
-    let mut e = Engine::new(Variable::Vector(
-        data.into_iter().map(|s| Variable::String(s)).collect(),
-    ));
+fn evaluate_data(data: InputData, definition: &Definition) -> Result<Variable, &'static str> {
+    let mut e = Engine::new(Variable::from_input_data(&data));
     e.fire(definition)?;
-    if let Variable::Vector(v) = e.get(String::from("OUT")) {
-        info!("OUT variable from engine: {:?}", v);
-        let a: Vec<String> = v
-            .into_iter()
-            .map(|v| {
-                if let Variable::String(s) = v {
-                    s.to_string()
-                } else {
-                    error!("skipping element, not String");
-                    String::from("")
-                }
-            })
-            .collect();
-        Ok(a)
-    } else {
-        Err("invalid returned type from evaluation")
-    }
+    Ok(e.get(String::from("OUT")).clone())
 }
 
 // create_write_vec creates a vector of WriteData from a TrackedData.
-fn create_write_vec(direction: Direction, data: TrackedData) -> Vec<Vec<String>> {
-    let mut write_vec = Vec::new();
-    match direction {
-        Direction::Vertical => {
-            for v in data {
-                write_vec.push(vec![v]);
-            }
-        }
-        Direction::Horizontal => {
-            let mut row = Vec::new();
-            for v in data {
-                row.push(v);
-            }
-            write_vec.push(row);
-        }
-    }
+fn create_write_vec(_direction: Direction, data: Variable) -> Vec<Vec<String>> {
+    let mut write_vec: Vec<Vec<String>> = Vec::new();
+    write_vec.push(vec![format!("{:?}", data)]);
     write_vec
+}
+
+fn transpose<T>(v: Vec<Vec<T>>) -> Vec<Vec<T>> {
+    assert!(!v.is_empty());
+    let len = v[0].len();
+    let mut iters: Vec<_> = v.into_iter().map(|n| n.into_iter()).collect();
+    (0..len)
+        .map(|_| {
+            iters
+                .iter_mut()
+                .map(|n| n.next().unwrap())
+                .collect::<Vec<T>>()
+        })
+        .collect()
 }
 
 // create_range creates range from a starting position and a direction.
 fn create_range(
-    offset: &u32, // last previously written place.
+    offset: u32, // last previously written place.
     starting_position: &str,
     sheet: &str,
     direction: Direction,
@@ -260,7 +245,7 @@ fn create_range(
         Direction::Horizontal => {
             range = format!(
                 "{}{}:{}{}",
-                add_str(character, *offset),
+                add_str(character, offset),
                 number,
                 add_str(character, offset + data_len),
                 number,

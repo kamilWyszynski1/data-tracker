@@ -43,10 +43,13 @@ impl<'r> Responder<'r, 'static> for TaskCreateResponse {
     }
 }
 
-pub async fn apply(
+#[post("/create", format = "json", data = "<request>")]
+pub async fn create(
     sender: &State<Sender<TrackingTask>>,
     request: Json<TaskCreateRequest>,
 ) -> TaskCreateResponse {
+    info!("definition from request: {:?}", request.definition);
+
     let tt = TrackingTask::from_task_create_request(request.clone());
 
     match tt {
@@ -64,5 +67,34 @@ pub async fn apply(
             error!("{}", e);
             TaskCreateResponse::new(json!({ "err": format!("{}", e) }), Status::Ok)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::web::task::TaskCreateRequest;
+
+    #[test]
+    fn test_deserializing() {
+        let req: TaskCreateRequest = serde_json::from_str(
+            r#"{
+            "name": "name",
+            "description": "description",
+            "spreadsheet_id": "id",
+            "sheet": "sheet",
+            "starting_position": "A1",
+            "direction": "horizontal",
+            "interval_secs": 30,
+            "definition": {
+                "steps": [
+                    "DEFINE(var, VEC(1,2,3,4, GET(IN))",
+                    "DEFINE(OUT, GET(var))"
+                ]
+            },
+            "url": "whatever"
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(req.definition.steps.len(), 2);
     }
 }

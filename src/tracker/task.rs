@@ -1,4 +1,7 @@
-use rand::Rng;
+use serde::Deserialize;
+use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 use std::vec::Vec;
 use uuid::Uuid;
@@ -7,31 +10,42 @@ use crate::data::getter::getter_from_url;
 use crate::lang::engine::Definition;
 use crate::web::task::TaskCreateRequest;
 
-// TrackedData is a type wrap for data that is being tracked. It'll be written as string anyway.
-pub type TrackedData = Vec<String>;
+/// Supported types for task's input data.
+/// Should match with InputData.
+#[derive(Debug, Clone, Deserialize, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum InputType {
+    String,
+    Json,
+}
 
-// GetDataFn is a type wrap for a function that returns a TrackedData.
-pub type GetDataFn = fn() -> Result<TrackedData, &'static str>;
+/// Enum for user's input data.
+#[derive(Debug, Clone, Deserialize)]
+pub enum InputData {
+    String(String),
+    Json(Value),
+}
 
-#[derive(Clone, Debug, Copy)]
+//type aliases added, because this is a chonker of a type
+type GetDataResult = Result<InputData, &'static str>;
+type BoxFn<T> = Box<dyn Fn() -> T + Send + Sync>;
+type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
+
+pub type BoxFnThatReturnsAFuture = BoxFn<BoxFuture<GetDataResult>>;
+
+//pub type GetDataFn =
+// Box<dyn Fn() -> (dyn Future<Output = Result<InputData, &'static str>> + Send + Sync)>;
+
 // Direction indicates direction of written data.
+#[derive(Clone, Debug, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Direction {
     Vertical,   // data will be written in columns.
     Horizontal, // data will be written in rows.
 }
 
-impl Direction {
-    pub fn from_string(s: &str) -> Result<Self, &'static str> {
-        match s.to_lowercase().as_str() {
-            "vertical" | "v" => Ok(Self::Vertical),
-            "horizontal" | "" => Ok(Self::Horizontal),
-            _ => Err("invalid direction"),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Copy, PartialEq)]
 // TimestampPosition indicates position of timestamp in the data.
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum TimestampPosition {
     None, // timestamp will not be written.
     Before,
@@ -41,17 +55,16 @@ pub enum TimestampPosition {
 // CallbackFn is a type wrap for callback function.
 type CallbackFn = fn(Result<(), &'static str>) -> ();
 
-#[derive(Clone, Debug)]
 // TrackingTask holds information about tracking task.
 pub struct TrackingTask {
     id: Uuid,                    // task id.
     name: Option<String>,        // task name.
     description: Option<String>, // task description.
 
-    data_fn: GetDataFn,        // function that returns data to be written.
-    spreadsheet_id: String,    // spreadsheet where data will be written.
-    starting_position: String, // starting position of data in the spreadsheet. A1 notation.
-    sheet: String,             // exact sheet of spreadsheet. Default is empty, first sheet.
+    data_fn: BoxFnThatReturnsAFuture, // function that returns data to be written.
+    spreadsheet_id: String,           // spreadsheet where data will be written.
+    starting_position: String,        // starting position of data in the spreadsheet. A1 notation.
+    sheet: String,                    // exact sheet of spreadsheet. Default is empty, first sheet.
     direction: Direction,
     interval: Duration,   // interval between data writes.
     with_timestamp: bool, // whether to write timestamp.
@@ -69,7 +82,7 @@ impl TrackingTask {
         sheet: String,
         starting_position: String,
         direction: Direction,
-        data_fn: GetDataFn,
+        data_fn: BoxFnThatReturnsAFuture,
         interval: Duration,
     ) -> TrackingTask {
         assert_ne!(spreadsheet_id, "", "spreadsheet_id cannot be empty");
@@ -147,8 +160,8 @@ impl TrackingTask {
         }
     }
 
-    pub fn data(&self) -> Result<TrackedData, &'static str> {
-        (self.data_fn)()
+    pub async fn data(&self) -> Result<InputData, &'static str> {
+        (self.data_fn)().await
     }
 
     pub fn name(&self) -> &str {
@@ -209,7 +222,6 @@ impl TrackingTask {
     }
 
     pub fn from_task_create_request(tcr: TaskCreateRequest) -> Result<Self, &'static str> {
-        let direction = Direction::from_string(&tcr.direction)?;
         let interval = Duration::new(tcr.interval_secs, 0);
 
         Ok(TrackingTask {
@@ -219,36 +231,25 @@ impl TrackingTask {
             spreadsheet_id: tcr.spreadsheet_id,
             sheet: tcr.sheet,
             starting_position: tcr.starting_position,
-            direction,
+            direction: tcr.direction,
             interval,
             callbacks: None,
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
             definition: tcr.definition,
-            data_fn: getter_from_url(&tcr.url),
+            data_fn: getter_from_url(&tcr.url, tcr.input_type),
         })
     }
 }
 
-// random_value_generator generates random values.
-pub fn random_value_generator() -> Result<TrackedData, &'static str> {
-    let mut rng = rand::thread_rng();
-    let mut vec = vec![];
-
-    for _ in 1..10 {
-        vec.push(rng.gen_range(0..10).to_string());
-    }
-    Ok(vec)
-}
-
 mod test {
     #[allow(unused_imports)]
-    use crate::tracker::task::{Direction, TrackedData, TrackingTask};
+    use crate::tracker::task::{Direction, InputData, TrackingTask};
 
     #[allow(dead_code)]
-    fn test_get_data_fn() -> Result<TrackedData, &'static str> {
-        Ok(vec!["test".to_string()])
+    async fn test_get_data_fn() -> Result<InputData, &'static str> {
+        Ok(InputData::String(String::from("test")))
     }
     #[test]
     fn callback_test() {
@@ -257,7 +258,7 @@ mod test {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            test_get_data_fn,
+            Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
         );
         tt = tt.with_callback(|res: Result<(), &'static str>| {
@@ -274,7 +275,7 @@ mod test {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            test_get_data_fn,
+            Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
         );
         tt = tt.with_name("test".to_string());
@@ -289,7 +290,7 @@ mod test {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            test_get_data_fn,
+            Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
         );
         tt = tt.with_description("test".to_string());

@@ -1,6 +1,8 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+use crate::tracker::task::InputData;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Variable {
     None, // placeholder for functionalities that does not produce Variables, like DEFINE.
@@ -11,6 +13,16 @@ pub enum Variable {
     Vector(Vec<Variable>),
     Object(HashMap<String, Variable>),
     Json(Value),
+}
+
+impl Variable {
+    /// Translated InputData enum to Variable enum.
+    pub fn from_input_data(td: &InputData) -> Self {
+        match td {
+            InputData::String(s) => Variable::String(s.clone()),
+            InputData::Json(j) => Variable::Json(j.clone()),
+        }
+    }
 }
 
 fn serde_value_to_variable(v: Value) -> Variable {

@@ -95,13 +95,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::tracker::task::{Direction, TrackedData, TrackingTask};
+    use crate::tracker::task::{Direction, InputData, TrackingTask};
     use crate::tracker::tracker::Tracker;
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
 
-    fn test_get_data_fn() -> Result<TrackedData, &'static str> {
-        Ok(vec!["test".to_string()])
+    async fn test_get_data_fn() -> Result<InputData, &'static str> {
+        Ok(InputData::String(String::from("test")))
     }
 
     #[derive(Clone)]
@@ -206,7 +206,7 @@ mod tests {
                     "".to_string(),
                     "A4".to_string(),
                     Direction::Vertical,
-                    test_get_data_fn,
+                    Box::new(move || Box::pin(test_get_data_fn())),
                     std::time::Duration::from_secs(1),
                 )
                 .with_name("TEST4".to_string())
@@ -221,7 +221,7 @@ mod tests {
                     "".to_string(),
                     "A5".to_string(),
                     Direction::Vertical,
-                    test_get_data_fn,
+                    Box::new(move || Box::pin(test_get_data_fn())),
                     std::time::Duration::from_secs(1),
                 )
                 .with_name("TEST5".to_string())

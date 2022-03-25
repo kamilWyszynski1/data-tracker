@@ -1,5 +1,5 @@
 use crate::lang::engine::Definition;
-use crate::tracker::task::TrackingTask;
+use crate::tracker::task::{Direction, InputType, TrackingTask};
 use rocket::http::{ContentType, Status};
 use rocket::response::{self, Responder, Response};
 use rocket::serde::json::Json;
@@ -9,16 +9,17 @@ use serde_json::json;
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
 
-#[derive(Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct TaskCreateRequest {
     pub name: String,
     pub description: String,
     pub spreadsheet_id: String,
     pub sheet: String,
     pub starting_position: String,
-    pub direction: String,
+    pub direction: Direction,
     pub interval_secs: u64,
     pub definition: Definition,
+    pub input_type: InputType,
     pub url: String, // url for acquiring the data.
 }
 
@@ -91,10 +92,12 @@ mod tests {
                     "DEFINE(OUT, GET(var))"
                 ]
             },
+            "input_type": "json",
             "url": "whatever"
         }"#,
         )
         .unwrap();
         assert_eq!(req.definition.steps.len(), 2);
+        println!("{:?}", req);
     }
 }

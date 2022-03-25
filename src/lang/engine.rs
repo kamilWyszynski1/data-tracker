@@ -1,11 +1,12 @@
 use super::lexer::{Lexer, Parser};
 use super::variable::Variable;
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Definition {
-    steps: Vec<String>,
+    pub steps: Vec<String>,
 }
 
 impl Definition {
@@ -59,7 +60,10 @@ impl Engine {
 
     /// Takes definition run it step by step.
     pub fn fire(&mut self, definition: &Definition) -> Result<(), &'static str> {
+        info!("firing with definition: {:?}", definition);
+
         for s in &definition.steps {
+            info!("evaluating step: {:?}", s);
             // make sure that all opened braces are closed.
             assert_eq!(s.matches('(').count(), s.matches(')').count());
             let root = Parser::new(Lexer::new(s).make_tokens()).parse();

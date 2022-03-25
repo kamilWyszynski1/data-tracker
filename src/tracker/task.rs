@@ -225,7 +225,7 @@ impl TrackingTask {
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
-            definition: Definition::new(vec![]),
+            definition: tcr.definition,
             data_fn: getter_from_url(&tcr.url),
         })
     }

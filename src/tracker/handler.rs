@@ -5,7 +5,7 @@ use crate::lang::variable::Variable;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
-use log::error;
+use log::{error, info};
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
@@ -149,6 +149,8 @@ where
         let result = self.task.data().unwrap();
         let evaluated = evaluate_data(result, self.task.definition());
 
+        info!("evaluated from engine: {:?}", &evaluated);
+
         match evaluated {
             Ok(data) => {
                 let last_place = self.db.get(&self.task.id()).await.unwrap_or(0);
@@ -192,6 +194,7 @@ fn evaluate_data(data: Vec<String>, definition: &Definition) -> Result<Vec<Strin
     ));
     e.fire(definition)?;
     if let Variable::Vector(v) = e.get(String::from("OUT")) {
+        info!("OUT variable from engine: {:?}", v);
         let a: Vec<String> = v
             .into_iter()
             .map(|v| {

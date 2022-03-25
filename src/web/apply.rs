@@ -45,6 +45,7 @@ pub async fn apply(
 #[cfg(test)]
 mod tests {
     use crate::tracker::manager::{Command, TaskCommand};
+    use crate::tracker::task::TrackingTask;
     use crate::web::build::rocket;
     use rocket::http::{ContentType, Status};
     use rocket::local::asynchronous::Client;
@@ -56,8 +57,9 @@ mod tests {
     async fn successful_apply() {
         println!("{:?}", Uuid::new_v4().to_simple());
         let (cmd_send, mut cmd_receive) = channel::<TaskCommand>(1);
+        let (tt_send, _) = channel::<TrackingTask>(1);
 
-        let r = rocket(cmd_send);
+        let r = rocket(cmd_send, tt_send);
         let client = Client::tracked(r).await.expect("valid rocket instance");
         let req = client
             .post("/apply")
@@ -79,8 +81,9 @@ mod tests {
     #[tokio::test]
     async fn invalid_uuid_apply() {
         let (cmd_send, mut cmd_receive) = channel::<TaskCommand>(1);
+        let (tt_send, _) = channel::<TrackingTask>(1);
 
-        let r = rocket(cmd_send);
+        let r = rocket(cmd_send, tt_send);
         let client = Client::tracked(r).await.expect("valid rocket instance");
         let req = client
             .post("/apply")
@@ -94,8 +97,9 @@ mod tests {
     #[tokio::test]
     async fn invalid_command_apply() {
         let (cmd_send, mut cmd_receive) = channel::<TaskCommand>(1);
+        let (tt_send, _) = channel::<TrackingTask>(1);
 
-        let r = rocket(cmd_send);
+        let r = rocket(cmd_send, tt_send);
         let client = Client::tracked(r).await.expect("valid rocket instance");
         let req = client
             .post("/apply")

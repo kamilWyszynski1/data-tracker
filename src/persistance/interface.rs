@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
 /// Tracker persistance state shared across all handlers.
 pub struct Db<P: Persistance> {
     shared: Arc<Mutex<P>>,

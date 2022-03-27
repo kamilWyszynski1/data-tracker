@@ -1,4 +1,4 @@
-use super::lexer::{Lexer, Parser};
+use super::lexer::{EvalError, Lexer, Parser};
 use super::variable::Variable;
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -54,12 +54,12 @@ impl Engine {
     pub fn set(&mut self, key: String, v: Variable) {
         self.variables.insert(key, v);
     }
-    pub fn get(&self, key: String) -> &Variable {
-        self.variables.get(&key).unwrap()
+    pub fn get(&self, key: String) -> Option<&Variable> {
+        self.variables.get(&key)
     }
 
     /// Takes definition run it step by step.
-    pub fn fire(&mut self, definition: &Definition) -> Result<(), &'static str> {
+    pub fn fire(&mut self, definition: &Definition) -> Result<(), EvalError> {
         info!("firing with definition: {:?}", definition);
 
         for s in &definition.steps {
@@ -67,7 +67,7 @@ impl Engine {
             // make sure that all opened braces are closed.
             assert_eq!(s.matches('(').count(), s.matches(')').count());
             let root = Parser::new(Lexer::new(s).make_tokens()).parse();
-            root.eval(self);
+            root.eval(self)?;
         }
         Ok(())
     }

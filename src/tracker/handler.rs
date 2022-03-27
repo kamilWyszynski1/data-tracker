@@ -1,6 +1,7 @@
 use super::manager::Command;
 use super::task::{Direction, InputData, TrackingTask};
 use crate::lang::engine::{Definition, Engine};
+use crate::lang::lexer::EvalError;
 use crate::lang::variable::Variable;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
@@ -183,17 +184,23 @@ where
                 }
             }
             Err(e) => {
-                self.task.run_callbacks(Err(e));
+                error!("{:?}", e);
+                self.task.run_callbacks(Err("failed to evaluate"));
             }
         }
     }
 }
 
 /// Function creates new engine and calls fire method for given Definition.
-fn evaluate_data(data: InputData, definition: &Definition) -> Result<Variable, &'static str> {
+fn evaluate_data(data: InputData, definition: &Definition) -> Result<Variable, EvalError> {
     let mut e = Engine::new(Variable::from_input_data(&data));
     e.fire(definition)?;
-    Ok(e.get(String::from("OUT")).clone())
+    Ok(e.get(String::from("OUT"))
+        .ok_or(EvalError::Internal {
+            operation: String::from("evaluate_data"),
+            msg: String::from("There is not OUT variable!!!"),
+        })?
+        .clone())
 }
 
 // create_write_vec creates a vector of WriteData from a TrackedData.

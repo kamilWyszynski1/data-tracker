@@ -4,6 +4,19 @@ use core::panic;
 use serde_json::Value;
 use std::fmt::{self, Display};
 
+#[derive(Debug)]
+pub enum EvalError {
+    InvalidType {
+        operation: String,
+        t: String,
+        wanted: String,
+    },
+    Internal {
+        operation: String,
+        msg: String,
+    },
+}
+
 #[derive(Debug, PartialEq, Clone)]
 /// Enum for Node type.
 enum NodeEnum {
@@ -76,11 +89,16 @@ impl Node {
     /// this function will go trough tree created from that declaration
     /// and evaluate root node and all of nodes below in order to return
     /// single Variable as a result.
-    pub fn eval(&self, state: &mut Engine) -> Variable {
+    pub fn eval(&self, state: &mut Engine) -> Result<Variable, EvalError> {
         match self.value {
             NodeEnum::None => todo!(),
             NodeEnum::Keyword(ref keyword) => {
-                let nodes: Vec<Variable> = self.nodes.iter().map(|n| n.eval(state)).collect();
+                let nodes = self
+                    .nodes
+                    .iter()
+                    .map(|n| n.eval(state))
+                    .collect::<Result<Vec<Variable>, EvalError>>()?;
+
                 match keyword {
                     Keyword::Bool => bool(&nodes),
                     Keyword::Int => int(&nodes),
@@ -89,7 +107,7 @@ impl Node {
                     Keyword::Min => sub(&nodes),
                     Keyword::Div => div(&nodes),
                     Keyword::Mult => mult(&nodes),
-                    Keyword::Vec => Variable::Vector(nodes),
+                    Keyword::Vec => Ok(Variable::Vector(nodes)),
                     Keyword::Extract => extract(&nodes),
                     Keyword::Define => define(&nodes, state),
                     Keyword::Get => get(&nodes, state),
@@ -99,40 +117,63 @@ impl Node {
                     Keyword::None => panic!("should not be reached"),
                 }
             }
-            NodeEnum::Var(ref var) => Variable::String(var.clone()),
+            NodeEnum::Var(ref var) => Ok(Variable::String(var.clone())),
         }
     }
 }
 
-fn bool(nodes: &Vec<Variable>) -> Variable {
-    Variable::Bool(parse_single_param(nodes))
+fn bool(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+    Ok(Variable::Bool(parse_single_param(nodes).map_err(
+        |err| EvalError::Internal {
+            operation: String::from("bool"),
+            msg: err,
+        },
+    )?))
 }
 
-fn int(nodes: &Vec<Variable>) -> Variable {
-    Variable::Int(parse_single_param(nodes))
+fn int(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+    Ok(Variable::Int(parse_single_param(nodes).map_err(|err| {
+        EvalError::Internal {
+            operation: String::from("bool"),
+            msg: err,
+        }
+    })?))
 }
-fn float(nodes: &Vec<Variable>) -> Variable {
-    Variable::Float(parse_single_param(nodes))
+fn float(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+    Ok(Variable::Float(parse_single_param(nodes).map_err(
+        |err| EvalError::Internal {
+            operation: String::from("bool"),
+            msg: err,
+        },
+    )?))
 }
-fn add(nodes: &Vec<Variable>) -> Variable {
+fn add(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     let mut is_float = false;
     let mut sum: f32 = 0.;
-    nodes.iter().for_each(|n| match *n {
-        Variable::Float(f) => {
-            sum += f;
-            is_float = true;
+    for n in nodes.into_iter() {
+        match *n {
+            Variable::Float(f) => {
+                sum += f;
+                is_float = true;
+            }
+            Variable::Int(i) => sum += i as f32,
+            _ => {
+                return Err(EvalError::InvalidType {
+                    operation: String::from("add"),
+                    t: type_of(n),
+                    wanted: String::from("Variable::Float or Variable::Int"),
+                });
+            }
         }
-        Variable::Int(i) => sum += i as f32,
-        _ => panic!("invalid type for Add"),
-    });
-    if is_float {
-        return Variable::Float(sum);
     }
-    return Variable::Int(sum as isize);
+    if is_float {
+        return Ok(Variable::Float(sum));
+    }
+    Ok(Variable::Int(sum as isize))
 }
 
 /// Subtracts one Variable from another.
-fn sub(nodes: &Vec<Variable>) -> Variable {
+fn sub(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -141,23 +182,37 @@ fn sub(nodes: &Vec<Variable>) -> Variable {
     match v1 {
         Variable::Float(f) => {
             if let Variable::Float(f2) = v2 {
-                return Variable::Float(f - f2);
+                return Ok(Variable::Float(f - f2));
             } else {
-                panic!("second value is not float")
+                return Err(EvalError::InvalidType {
+                    operation: String::from("sub"),
+                    t: type_of(v2),
+                    wanted: String::from("Variable::Float"),
+                });
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                return Variable::Int(i - i2);
+                return Ok(Variable::Int(i - i2));
             } else {
-                panic!("second value is not float")
+                return Err(EvalError::InvalidType {
+                    operation: String::from("add"),
+                    t: type_of(v2),
+                    wanted: String::from("Variable::Int"),
+                });
             }
         }
-        _ => panic!("invalid type for Min"),
+        _ => {
+            return Err(EvalError::InvalidType {
+                operation: String::from("add"),
+                t: type_of(v1),
+                wanted: String::from("Variable::Float or Variable::Int"),
+            })
+        }
     }
 }
 /// Divides one Variable by another.
-fn div(nodes: &Vec<Variable>) -> Variable {
+fn div(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -166,24 +221,38 @@ fn div(nodes: &Vec<Variable>) -> Variable {
     match v1 {
         Variable::Float(f) => {
             if let Variable::Float(f2) = v2 {
-                return Variable::Float(f / f2);
+                return Ok(Variable::Float(f / f2));
             } else {
-                panic!("second value is not float")
+                return Err(EvalError::InvalidType {
+                    operation: String::from("add"),
+                    t: type_of(v2),
+                    wanted: String::from("Variable::Float"),
+                });
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                return Variable::Int(i / i2);
+                return Ok(Variable::Int(i / i2));
             } else {
-                panic!("second value is not float")
+                return Err(EvalError::InvalidType {
+                    operation: String::from("add"),
+                    t: type_of(v2),
+                    wanted: String::from("Variable::Int"),
+                });
             }
         }
-        _ => panic!("invalid type for Min"),
+        _ => {
+            return Err(EvalError::InvalidType {
+                operation: String::from("add"),
+                t: type_of(v1),
+                wanted: String::from("Variable::Float or Variable::Int"),
+            })
+        }
     }
 }
 
 /// Multiplies one Variable by another.
-fn mult(nodes: &Vec<Variable>) -> Variable {
+fn mult(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -192,33 +261,53 @@ fn mult(nodes: &Vec<Variable>) -> Variable {
     match v1 {
         Variable::Float(f) => {
             if let Variable::Float(f2) = v2 {
-                return Variable::Float(f * f2);
+                return Ok(Variable::Float(f * f2));
             } else {
-                panic!("second value is not float")
+                return Err(EvalError::InvalidType {
+                    operation: String::from("add"),
+                    t: type_of(f),
+                    wanted: String::from("Variable::Float"),
+                });
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                return Variable::Int(i * i2);
+                return Ok(Variable::Int(i * i2));
             } else {
-                panic!("second value is not float")
+                return Err(EvalError::InvalidType {
+                    operation: String::from("add"),
+                    t: type_of(i),
+                    wanted: String::from("Variable::Int"),
+                });
             }
         }
-        _ => panic!("invalid type for Min"),
+        _ => {
+            return Err(EvalError::InvalidType {
+                operation: String::from("add"),
+                t: type_of(v1),
+                wanted: String::from("Variable::Float or Variable::Int"),
+            })
+        }
     }
+}
+fn type_of<T>(_: &T) -> String {
+    format!("{}", std::any::type_name::<T>())
 }
 
 // Extracts field/index from wanted Variable.
-fn extract(nodes: &Vec<Variable>) -> Variable {
+fn extract(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
-    v1.extract(v2).unwrap()
+    v1.extract(v2).map_err(|err| EvalError::Internal {
+        operation: String::from("extract"),
+        msg: String::from(err),
+    })
 }
 
 // Defines new variable and writes it to a state.
-fn define(nodes: &Vec<Variable>, state: &mut Engine) -> Variable {
+fn define(nodes: &Vec<Variable>, state: &mut Engine) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -227,63 +316,106 @@ fn define(nodes: &Vec<Variable>, state: &mut Engine) -> Variable {
     if let Variable::String(s) = v1 {
         state.set(s.to_string(), v2);
     } else {
-        panic!("variable name is not a Variable::String")
+        return Err(EvalError::InvalidType {
+            operation: String::from("define"),
+            t: type_of(v1),
+            wanted: String::from("Variable::String"),
+        });
     }
 
-    Variable::None
+    Ok(Variable::None)
 }
 
 // Returns declared variable.
-fn get(nodes: &Vec<Variable>, state: &Engine) -> Variable {
-    let v = parse_single_param::<String>(nodes);
+fn get(nodes: &Vec<Variable>, state: &Engine) -> Result<Variable, EvalError> {
+    let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
+        operation: String::from("bool"),
+        msg: err,
+    })?;
 
-    state.get(v).clone()
+    let g = state.get(v).ok_or(EvalError::Internal {
+        operation: String::from("get"),
+        msg: String::from("variable not found"),
+    })?;
+    Ok(g.clone())
 }
 
 // Returns Variable::Object parsed from json-like string.
-fn object(nodes: &Vec<Variable>) -> Variable {
-    let v = parse_single_param::<String>(nodes);
+fn object(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+    let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
+        operation: String::from("bool"),
+        msg: err,
+    })?;
 
-    let obj: Value = serde_json::from_str(&v).unwrap();
-    assert!(obj.is_object());
-    value_object_to_variable_object(obj)
+    let obj: Value = serde_json::from_str(&v).map_err(|err| EvalError::Internal {
+        operation: String::from("object"),
+        msg: err.to_string(),
+    })?;
+    if !obj.is_object() {
+        return Err(EvalError::Internal {
+            operation: String::from("object"),
+            msg: String::from("json Value is not an object"),
+        });
+    }
+    Ok(value_object_to_variable_object(obj))
 }
 
 // Returns Variable::Json.
-fn json(nodes: &Vec<Variable>) -> Variable {
-    let v = parse_single_param::<String>(nodes);
-    let obj: Value = serde_json::from_str(&v).unwrap();
-    Variable::Json(obj)
+fn json(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+    let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
+        operation: String::from("object"),
+        msg: err.to_string(),
+    })?;
+    let obj: Value = serde_json::from_str(&v).map_err(|err| EvalError::Internal {
+        operation: String::from("object"),
+        msg: err.to_string(),
+    })?;
+    Ok(Variable::Json(obj))
 }
 
 // Performs GET http request, returns Variable::Json.
-fn http(nodes: &Vec<Variable>) -> Variable {
-    let url = parse_single_param::<String>(nodes);
-    let body: Value = reqwest::blocking::get(url).unwrap().json().unwrap();
-    Variable::Json(body)
+fn http(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+    let url = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
+        operation: String::from("http"),
+        msg: err,
+    })?;
+
+    let body = reqwest::blocking::get(url)
+        .map_err(|err| EvalError::Internal {
+            operation: String::from("http"),
+            msg: err.to_string(),
+        })?
+        .json()
+        .map_err(|err| EvalError::Internal {
+            operation: String::from("http"),
+            msg: err.to_string(),
+        })?;
+    Ok(Variable::Json(body))
 }
 
 /// Parses single Variable to given type.
-fn parse_single_param<T>(nodes: &Vec<Variable>) -> T
+fn parse_single_param<T>(nodes: &Vec<Variable>) -> Result<T, String>
 where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
-    assert_eq!(nodes.len(), 1);
-    let param = nodes.first().unwrap();
+    let param = nodes.first().ok_or("There's not variable")?;
     parse_type(param)
 }
 
 /// Parses Variable to given type.
-fn parse_type<T>(v: &Variable) -> T
+fn parse_type<T>(v: &Variable) -> Result<T, String>
 where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
     if let Variable::String(s) = v {
-        return s.parse::<T>().unwrap();
+        let a = s
+            .parse::<T>()
+            .map_err(|_| String::from("Could not parse"))?;
+        return Ok(a);
     }
-    panic!("param is not Variable::String")
+    Err(String::from("param is not a Variable::string"))
 }
 
 /// All supported keyword that can be used in steps declarations.
@@ -486,7 +618,7 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use super::Lexer;
+    use super::{EvalError, Lexer};
     use crate::lang::{
         engine::{Definition, Engine},
         lexer::{Keyword, Node, Parser, Token},
@@ -612,61 +744,61 @@ mod tests {
 
         let var = String::from("var");
         let n1 = Node::new_var(var.clone());
-        assert_eq!(n1.eval(&mut state), Variable::String(var));
+        assert_eq!(n1.eval(&mut state).unwrap(), Variable::String(var));
 
         let n1 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("true")));
-        assert_eq!(n1.eval(&mut state), Variable::Bool(true));
+        assert_eq!(n1.eval(&mut state).unwrap(), Variable::Bool(true));
 
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
-        assert_eq!(n1.eval(&mut state), Variable::Float(2.3));
+        assert_eq!(n1.eval(&mut state).unwrap(), Variable::Float(2.3));
 
         let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
-        assert_eq!(n2.eval(&mut state), Variable::Int(123));
+        assert_eq!(n2.eval(&mut state).unwrap(), Variable::Int(123));
 
         let n3 = Node::new_keyword(Keyword::Add)
             .append(n1)
             .append(n2.clone());
-        assert_eq!(n3.eval(&mut state), Variable::Float(125.3));
+        assert_eq!(n3.eval(&mut state).unwrap(), Variable::Float(125.3));
 
         let n4 = Node::new_keyword(Keyword::Add)
             .append(n2.clone())
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"))));
-        assert_eq!(n4.eval(&mut state), Variable::Int(323));
+        assert_eq!(n4.eval(&mut state).unwrap(), Variable::Int(323));
 
         let n5 = Node::new_keyword(Keyword::Min)
             .append(n2)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("23"))));
-        assert_eq!(n5.eval(&mut state), Variable::Int(100));
+        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(100));
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state), Variable::Int(10));
+        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(10));
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n5.eval(&mut state), Variable::Float(8.));
+        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Float(8.));
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state), Variable::Int(-10));
+        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(-10));
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n5.eval(&mut state), Variable::Float(-8.));
+        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Float(-8.));
 
         let n5 = Node::new_keyword(Keyword::Mult)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n5.eval(&mut state), Variable::Float(-50.));
+        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Float(-50.));
 
         let n5 = Node::new_keyword(Keyword::Mult)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state), Variable::Int(-40));
+        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(-40));
     }
 
     #[test]
@@ -682,7 +814,7 @@ mod tests {
         let n4 = Node::new_keyword(Keyword::Mult)
             .append(n3)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n4.eval(&mut state), Variable::Float(313.25));
+        assert_eq!(n4.eval(&mut state).unwrap(), Variable::Float(313.25));
     }
 
     #[test]
@@ -694,7 +826,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let got = parser.parse();
         assert_eq!(
-            got.eval(&mut state),
+            got.eval(&mut state).unwrap(),
             Variable::Vector(vec![
                 Variable::String(String::from("1")),
                 Variable::Bool(true),
@@ -704,18 +836,19 @@ mod tests {
         )
     }
 
-    fn fire(def: Definition, state: &mut Engine) {
-        def.into_iter().for_each(|s| {
-            let tokens = Lexer::new(&s).make_tokens();
+    fn fire(def: Definition, state: &mut Engine) -> Result<(), EvalError> {
+        for step in def {
+            let tokens = Lexer::new(&step).make_tokens();
             let root = Parser::new(tokens).parse();
-            root.eval(state);
-        });
+            root.eval(state)?;
+        }
+        Ok(())
     }
     /// Runs single test scenario.
     fn test(def: Definition, var_name: String, value: Variable) {
         let mut state = Engine::default();
-        fire(def, &mut state);
-        assert_eq!(*state.get(var_name), value);
+        fire(def, &mut state).unwrap();
+        assert_eq!(*state.get(var_name).unwrap(), value);
     }
 
     #[test]
@@ -768,18 +901,21 @@ mod tests {
             String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
             String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
         ]);
-        fire(def, &mut state);
-        assert_eq!(*state.get(String::from("var")), Variable::Object(map));
+        fire(def, &mut state).unwrap();
         assert_eq!(
-            *state.get(String::from("var2")),
+            *state.get(String::from("var")).unwrap(),
+            Variable::Object(map)
+        );
+        assert_eq!(
+            *state.get(String::from("var2")).unwrap(),
             Variable::String(String::from("RSA"))
         );
         assert_eq!(
-            *state.get(String::from("var3")),
+            *state.get(String::from("var3")).unwrap(),
             Variable::String(String::from("sig"))
         );
         assert_eq!(
-            *state.get(String::from("var4")),
+            *state.get(String::from("var4")).unwrap(),
             Variable::String(String::from("nvalue"))
         );
     }
@@ -811,9 +947,12 @@ mod tests {
             format!("DEFINE(var, object('{}'))", map_str).to_string(),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
         ]);
-        fire(def, &mut state);
-        assert_eq!(*state.get(String::from("var")), Variable::Object(map));
-        assert_eq!(*state.get(String::from("var2")), obj);
+        fire(def, &mut state).unwrap();
+        assert_eq!(
+            *state.get(String::from("var")).unwrap(),
+            Variable::Object(map)
+        );
+        assert_eq!(*state.get(String::from("var2")).unwrap(), obj);
     }
 
     #[test]
@@ -835,10 +974,10 @@ mod tests {
             format!("DEFINE(var, JSON('{}'))", data).to_string(),
             "DEFINE(var2, EXTRACT(GET(var), name))".to_string(),
         ]);
-        fire(def, &mut state);
-        assert_eq!(*state.get("var".to_string()), Variable::Json(v));
+        fire(def, &mut state).unwrap();
+        assert_eq!(*state.get("var".to_string()).unwrap(), Variable::Json(v));
         assert_eq!(
-            *state.get("var2".to_string()),
+            *state.get("var2".to_string()).unwrap(),
             Variable::String(String::from("John Doe"))
         );
     }

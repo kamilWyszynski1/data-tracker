@@ -6,7 +6,7 @@ use crate::lang::variable::Variable;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
-use log::info;
+use log::{debug, info};
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
@@ -148,8 +148,9 @@ where
         info!("Handling task {}", self.task.info());
 
         let result = self.task.data().await.unwrap();
-        let evaluated = evaluate_data(result, self.task.definition());
+        info!("got from data_fn: {:?}", result);
 
+        let evaluated = evaluate_data(result, self.task.definition());
         info!("evaluated from engine: {:?}", &evaluated);
 
         match evaluated {

@@ -17,13 +17,13 @@ async fn get(url: String, it: InputType) -> Result<InputData, &'static str> {
                 })
                 .and_then(|t| Ok(InputData::String(t))),
             InputType::Json => r
-                .text()
+                .json()
                 .await
                 .map_err(|err| {
                     error!("failed to get json {}", err);
                     "failed to get json"
                 })
-                .and_then(|t| Ok(InputData::String(t))),
+                .and_then(|t| Ok(InputData::Json(t))),
         },
         Err(e) => {
             error!("failed to get data {}", e);

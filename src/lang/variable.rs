@@ -1,7 +1,6 @@
-use serde_json::Value;
-use std::collections::HashMap;
-
 use crate::tracker::task::InputData;
+use serde_json::Value;
+use std::{collections::HashMap, fmt};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Variable {
@@ -22,6 +21,28 @@ impl Variable {
             InputData::String(s) => Variable::String(s.clone()),
             InputData::Json(j) => Variable::Json(j.clone()),
         }
+    }
+}
+
+impl fmt::Display for Variable {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let buf: String;
+        buf = match self {
+            Variable::None => String::from("None"),
+            Variable::Bool(_) => String::from("Bool"),
+            Variable::Int(_) => String::from("Int"),
+            Variable::Float(_) => String::from("Float"),
+            Variable::String(_) => String::from("String"),
+            Variable::Vector(_) => String::from("Vector"),
+            Variable::Object(_) => String::from("Object"),
+            Variable::Json(_) => String::from("Json"),
+        };
+        // Write strictly the first element into the supplied output
+        // stream: `f`. Returns `fmt::Result` which indicates whether the
+        // operation succeeded or failed. Note that `write!` uses syntax which
+        // is very similar to `println!`.
+        write!(f, "{}", buf)
     }
 }
 
@@ -59,13 +80,13 @@ pub fn value_object_to_variable_object(v: Value) -> Variable {
 }
 
 impl Variable {
-    pub fn extract(&self, f: &Variable) -> Result<Variable, &'static str> {
+    pub fn extract(&self, f: &Variable) -> Result<Variable, String> {
         match *self {
             Variable::None
             | Variable::Bool(_)
             | Variable::Int(_)
             | Variable::Float(_)
-            | Variable::String(_) => Err("cannot extract"),
+            | Variable::String(_) => Err(format!("cannot extract form: {}", self).to_string()),
             Variable::Vector(ref vec) => {
                 let inx: usize;
                 match f {
@@ -73,12 +94,12 @@ impl Variable {
                     Variable::String(s) => {
                         inx = s.parse().unwrap();
                     }
-                    _ => return Err("invalid index type"),
+                    _ => return Err(String::from("invalid index type")),
                 }
 
                 let inx = inx as usize;
                 if vec.len() < inx - 1 {
-                    return Err("index out of range");
+                    return Err(String::from("index out of range"));
                 }
                 Ok(vec[inx].clone())
             }
@@ -86,20 +107,20 @@ impl Variable {
                 if let Variable::String(s) = f {
                     match obj.get(s) {
                         Some(v) => Ok(v.clone()),
-                        None => Err("json does not have this field"),
+                        None => Err(String::from("json does not have this field")),
                     }
                 } else {
-                    Err("f in not Variable::String")
+                    Err(String::from("f in not Variable::String"))
                 }
             }
             Variable::Json(ref jsn) => {
                 if let Variable::String(s) = f {
                     match jsn.get(s) {
                         Some(v) => Ok(serde_value_to_variable(v.clone())),
-                        None => Err("json does not have this field"),
+                        None => Err(String::from("json does not have this field")),
                     }
                 } else {
-                    Err("f in not Variable::String")
+                    Err(String::from("f in not Variable::String"))
                 }
             }
         }

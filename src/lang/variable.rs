@@ -1,4 +1,4 @@
-use crate::tracker::task::InputData;
+use crate::core::task::InputData;
 use serde_json::Value;
 use std::{collections::HashMap, fmt};
 
@@ -27,8 +27,7 @@ impl Variable {
 impl fmt::Display for Variable {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let buf: String;
-        buf = match self {
+        let buf = match self {
             Variable::None => String::from("None"),
             Variable::Bool(_) => String::from("Bool"),
             Variable::Int(_) => String::from("Int"),
@@ -86,16 +85,13 @@ impl Variable {
             | Variable::Bool(_)
             | Variable::Int(_)
             | Variable::Float(_)
-            | Variable::String(_) => Err(format!("cannot extract form: {}", self).to_string()),
+            | Variable::String(_) => Err(format!("cannot extract form: {}", self)),
             Variable::Vector(ref vec) => {
-                let inx: usize;
-                match f {
-                    Variable::Int(i) => inx = *i as usize,
-                    Variable::String(s) => {
-                        inx = s.parse().unwrap();
-                    }
+                let inx = match f {
+                    Variable::Int(i) => *i as usize,
+                    Variable::String(s) => s.parse().unwrap(),
                     _ => return Err(String::from("invalid index type")),
-                }
+                };
 
                 let inx = inx as usize;
                 if vec.len() < inx - 1 {

@@ -1,6 +1,6 @@
 use super::apply::apply;
 use super::task::create;
-use crate::tracker::{manager::TaskCommand, task::TrackingTask};
+use crate::core::{manager::TaskCommand, task::TrackingTask};
 use rocket::{routes, Build, Rocket};
 use tokio::sync::mpsc::Sender;
 

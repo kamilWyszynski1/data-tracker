@@ -1,8 +1,8 @@
 extern crate datatracker_rust;
+use datatracker_rust::core::manager::TaskCommand;
+use datatracker_rust::core::task::TrackingTask;
+use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
-use datatracker_rust::tracker::manager::TaskCommand;
-use datatracker_rust::tracker::task::TrackingTask;
-use datatracker_rust::tracker::tracker::Tracker;
 use datatracker_rust::web::build::rocket;
 use datatracker_rust::wrap::APIWrapper;
 use tokio::join;

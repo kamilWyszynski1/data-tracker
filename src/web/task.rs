@@ -1,5 +1,5 @@
+use crate::core::task::{Direction, InputType, TrackingTask};
 use crate::lang::engine::Definition;
-use crate::tracker::task::{Direction, InputType, TrackingTask};
 use rocket::http::{ContentType, Status};
 use rocket::response::{self, Responder, Response};
 use rocket::serde::json::Json;
@@ -55,7 +55,7 @@ pub async fn create(
 
     match tt {
         Ok(tt) => {
-            let id = tt.id().clone();
+            let id = tt.id();
             match sender.send(tt).await {
                 Ok(_) => TaskCreateResponse::new(json!({ "id": id }), Status::Ok),
                 Err(e) => {

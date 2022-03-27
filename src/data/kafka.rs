@@ -66,7 +66,7 @@ impl KConsumer {
         println!("here1");
 
         self.consumer
-            .subscribe(&vec![topic])
+            .subscribe(&[topic])
             .expect("Can't subscribe to specified topics");
         println!("here2");
 

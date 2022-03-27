@@ -36,16 +36,23 @@ jobs:
     resource_class: medium
     steps:
       - checkout
-      - setup-sccache
-      - restore-sccache-cache
+      # - setup-sccache
+      # - restore-sccache-cache
+      - run:
+          name: Install nightly
+          command: "rustup toolchain install nightly"
+      - run: rustup run nightly rustc --version
       - run: cargo --version
-      # - run:
-      #     name: Run build
-      #     command: "cargo build"
+      - run:
+          name: Run check
+          command: "cargo +nightly check"
       - run:
           name: Run Tests
-          command: "cargo test"
+          command: "cargo +nigthly test"
+      - run:
+          command: rustup component add clippy
+          name: Install Clippy
       - run:
           name: fmt
           command: "make lint"
-      - save-sccache-cache
+      # - save-sccache-cache

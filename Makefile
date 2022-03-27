@@ -1,2 +1,2 @@
 lint:
-	cargo clippy
+	cargo +nightly clippy

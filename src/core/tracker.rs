@@ -131,8 +131,8 @@ mod tests {
         }
     }
 
-    use crate::persistance::interface::Persistance;
     use crate::core::tracker::TaskCommand;
+    use crate::persistance::interface::Persistance;
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
     use uuid::Uuid;

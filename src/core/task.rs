@@ -155,7 +155,7 @@ impl TrackingTask {
         info!("running callbacks: {:?}", self.callbacks);
         if let Some(callbacks) = &self.callbacks {
             for callback in callbacks {
-                callback(result.clone());
+                callback(result);
             }
         }
     }
@@ -245,7 +245,7 @@ impl TrackingTask {
 
 mod test {
     #[allow(unused_imports)]
-    use crate::tracker::task::{Direction, InputData, TrackingTask};
+    use crate::core::task::{Direction, InputData, TrackingTask};
 
     #[allow(dead_code)]
     async fn test_get_data_fn() -> Result<InputData, &'static str> {

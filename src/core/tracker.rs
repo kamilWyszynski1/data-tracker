@@ -95,8 +95,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::tracker::task::{Direction, InputData, TrackingTask};
-    use crate::tracker::tracker::Tracker;
+    use crate::core::task::{Direction, InputData, TrackingTask};
+    use crate::core::tracker::Tracker;
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
 
@@ -132,7 +132,7 @@ mod tests {
     }
 
     use crate::persistance::interface::Persistance;
-    use crate::tracker::tracker::TaskCommand;
+    use crate::core::tracker::TaskCommand;
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
     use uuid::Uuid;

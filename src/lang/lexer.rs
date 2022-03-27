@@ -38,7 +38,7 @@ impl NodeEnum {
 /// be evaluated during Node evaluation.
 pub struct Node {
     value: NodeEnum,
-    nodes: Vec<Box<Node>>,
+    nodes: Vec<Node>,
 }
 
 impl Display for Node {
@@ -74,7 +74,7 @@ impl Node {
 
     /// Adds nodes to node.
     fn push(&mut self, pt: Node) {
-        self.nodes.push(Box::new(pt))
+        self.nodes.push(pt)
     }
 
     /// Appends node to nodes and return Self.
@@ -122,7 +122,7 @@ impl Node {
     }
 }
 
-fn bool(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn bool(nodes: &[Variable]) -> Result<Variable, EvalError> {
     Ok(Variable::Bool(parse_single_param(nodes).map_err(
         |err| EvalError::Internal {
             operation: String::from("bool"),
@@ -131,7 +131,7 @@ fn bool(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     )?))
 }
 
-fn int(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn int(nodes: &[Variable]) -> Result<Variable, EvalError> {
     Ok(Variable::Int(parse_single_param(nodes).map_err(|err| {
         EvalError::Internal {
             operation: String::from("bool"),
@@ -139,7 +139,7 @@ fn int(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
         }
     })?))
 }
-fn float(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn float(nodes: &[Variable]) -> Result<Variable, EvalError> {
     Ok(Variable::Float(parse_single_param(nodes).map_err(
         |err| EvalError::Internal {
             operation: String::from("bool"),
@@ -147,10 +147,10 @@ fn float(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
         },
     )?))
 }
-fn add(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn add(nodes: &[Variable]) -> Result<Variable, EvalError> {
     let mut is_float = false;
     let mut sum: f32 = 0.;
-    for n in nodes.into_iter() {
+    for n in nodes.iter() {
         match *n {
             Variable::Float(f) => {
                 sum += f;
@@ -173,7 +173,7 @@ fn add(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
 }
 
 /// Subtracts one Variable from another.
-fn sub(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn sub(nodes: &[Variable]) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -182,37 +182,35 @@ fn sub(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     match v1 {
         Variable::Float(f) => {
             if let Variable::Float(f2) = v2 {
-                return Ok(Variable::Float(f - f2));
+                Ok(Variable::Float(f - f2))
             } else {
-                return Err(EvalError::InvalidType {
+                Err(EvalError::InvalidType {
                     operation: String::from("sub"),
                     t: type_of(v2),
                     wanted: String::from("Variable::Float"),
-                });
+                })
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                return Ok(Variable::Int(i - i2));
+                Ok(Variable::Int(i - i2))
             } else {
-                return Err(EvalError::InvalidType {
+                Err(EvalError::InvalidType {
                     operation: String::from("add"),
                     t: type_of(v2),
                     wanted: String::from("Variable::Int"),
-                });
+                })
             }
         }
-        _ => {
-            return Err(EvalError::InvalidType {
-                operation: String::from("add"),
-                t: type_of(v1),
-                wanted: String::from("Variable::Float or Variable::Int"),
-            })
-        }
+        _ => Err(EvalError::InvalidType {
+            operation: String::from("add"),
+            t: type_of(v1),
+            wanted: String::from("Variable::Float or Variable::Int"),
+        }),
     }
 }
 /// Divides one Variable by another.
-fn div(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn div(nodes: &[Variable]) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -221,38 +219,36 @@ fn div(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     match v1 {
         Variable::Float(f) => {
             if let Variable::Float(f2) = v2 {
-                return Ok(Variable::Float(f / f2));
+                Ok(Variable::Float(f / f2))
             } else {
-                return Err(EvalError::InvalidType {
+                Err(EvalError::InvalidType {
                     operation: String::from("add"),
                     t: type_of(v2),
                     wanted: String::from("Variable::Float"),
-                });
+                })
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                return Ok(Variable::Int(i / i2));
+                Ok(Variable::Int(i / i2))
             } else {
-                return Err(EvalError::InvalidType {
+                Err(EvalError::InvalidType {
                     operation: String::from("add"),
                     t: type_of(v2),
                     wanted: String::from("Variable::Int"),
-                });
+                })
             }
         }
-        _ => {
-            return Err(EvalError::InvalidType {
-                operation: String::from("add"),
-                t: type_of(v1),
-                wanted: String::from("Variable::Float or Variable::Int"),
-            })
-        }
+        _ => Err(EvalError::InvalidType {
+            operation: String::from("add"),
+            t: type_of(v1),
+            wanted: String::from("Variable::Float or Variable::Int"),
+        }),
     }
 }
 
 /// Multiplies one Variable by another.
-fn mult(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn mult(nodes: &[Variable]) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -261,53 +257,51 @@ fn mult(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
     match v1 {
         Variable::Float(f) => {
             if let Variable::Float(f2) = v2 {
-                return Ok(Variable::Float(f * f2));
+                Ok(Variable::Float(f * f2))
             } else {
-                return Err(EvalError::InvalidType {
+                Err(EvalError::InvalidType {
                     operation: String::from("add"),
-                    t: type_of(f),
+                    t: type_of(&v2),
                     wanted: String::from("Variable::Float"),
-                });
+                })
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
-                return Ok(Variable::Int(i * i2));
+                Ok(Variable::Int(i * i2))
             } else {
-                return Err(EvalError::InvalidType {
+                Err(EvalError::InvalidType {
                     operation: String::from("add"),
-                    t: type_of(i),
+                    t: type_of(&v2),
                     wanted: String::from("Variable::Int"),
-                });
+                })
             }
         }
-        _ => {
-            return Err(EvalError::InvalidType {
-                operation: String::from("add"),
-                t: type_of(v1),
-                wanted: String::from("Variable::Float or Variable::Int"),
-            })
-        }
+        _ => Err(EvalError::InvalidType {
+            operation: String::from("add"),
+            t: type_of(&v1),
+            wanted: String::from("Variable::Float or Variable::Int"),
+        }),
     }
 }
 fn type_of<T>(_: &T) -> String {
-    format!("{}", std::any::type_name::<T>())
+    std::any::type_name::<T>().to_string()
 }
 
 // Extracts field/index from wanted Variable.
-fn extract(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn extract(nodes: &[Variable]) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
     v1.extract(v2).map_err(|err| EvalError::Internal {
         operation: String::from("extract"),
-        msg: String::from(err),
+        msg: err,
     })
 }
 
 // Defines new variable and writes it to a state.
-fn define(nodes: &Vec<Variable>, state: &mut Engine) -> Result<Variable, EvalError> {
+fn define(nodes: &[Variable], state: &mut Engine) -> Result<Variable, EvalError> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -327,7 +321,7 @@ fn define(nodes: &Vec<Variable>, state: &mut Engine) -> Result<Variable, EvalErr
 }
 
 // Returns declared variable.
-fn get(nodes: &Vec<Variable>, state: &Engine) -> Result<Variable, EvalError> {
+fn get(nodes: &[Variable], state: &Engine) -> Result<Variable, EvalError> {
     let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
         operation: String::from("bool"),
         msg: err,
@@ -341,7 +335,7 @@ fn get(nodes: &Vec<Variable>, state: &Engine) -> Result<Variable, EvalError> {
 }
 
 // Returns Variable::Object parsed from json-like string.
-fn object(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn object(nodes: &[Variable]) -> Result<Variable, EvalError> {
     let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
         operation: String::from("bool"),
         msg: err,
@@ -361,10 +355,10 @@ fn object(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
 }
 
 // Returns Variable::Json.
-fn json(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn json(nodes: &[Variable]) -> Result<Variable, EvalError> {
     let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
         operation: String::from("object"),
-        msg: err.to_string(),
+        msg: err,
     })?;
     let obj: Value = serde_json::from_str(&v).map_err(|err| EvalError::Internal {
         operation: String::from("object"),
@@ -374,7 +368,7 @@ fn json(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
 }
 
 // Performs GET http request, returns Variable::Json.
-fn http(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
+fn http(nodes: &[Variable]) -> Result<Variable, EvalError> {
     let url = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
         operation: String::from("http"),
         msg: err,
@@ -394,7 +388,7 @@ fn http(nodes: &Vec<Variable>) -> Result<Variable, EvalError> {
 }
 
 /// Parses single Variable to given type.
-fn parse_single_param<T>(nodes: &Vec<Variable>) -> Result<T, String>
+fn parse_single_param<T>(nodes: &[Variable]) -> Result<T, String>
 where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
@@ -439,7 +433,7 @@ pub enum Keyword {
 }
 
 impl Keyword {
-    fn from_string(s: &String) -> Option<Self> {
+    fn from_string(s: &str) -> Option<Self> {
         let s = match s.to_lowercase().as_str() {
             "define" => Self::Define,
             "get" => Self::Get,
@@ -485,7 +479,7 @@ pub struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn new(text: &'a str) -> Self {
         Lexer {
-            text: text,
+            text,
             pos: 0,
             current_char: text.chars().next().unwrap(),
             done: false,
@@ -587,7 +581,7 @@ impl Parser {
     fn advance(&mut self) {
         self.token_inx += 1;
         if self.token_inx < self.tokens.len() {
-            self.current_token = self.tokens.iter().nth(self.token_inx).unwrap().clone();
+            self.current_token = self.tokens.get(self.token_inx).unwrap().clone();
         } else {
             self.done = true
         }

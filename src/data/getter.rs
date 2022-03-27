@@ -1,4 +1,4 @@
-use crate::tracker::task::{BoxFnThatReturnsAFuture, InputData, InputType};
+use crate::core::task::{BoxFnThatReturnsAFuture, InputData, InputType};
 
 pub fn getter_from_url(url: &str, it: InputType) -> BoxFnThatReturnsAFuture {
     let u = url.to_string();
@@ -15,7 +15,7 @@ async fn get(url: String, it: InputType) -> Result<InputData, &'static str> {
                     error!("failed to get text {}", err);
                     "failed to get text"
                 })
-                .and_then(|t| Ok(InputData::String(t))),
+                .map(InputData::String),
             InputType::Json => r
                 .json()
                 .await
@@ -23,7 +23,7 @@ async fn get(url: String, it: InputType) -> Result<InputData, &'static str> {
                     error!("failed to get json {}", err);
                     "failed to get json"
                 })
-                .and_then(|t| Ok(InputData::Json(t))),
+                .map(InputData::Json),
         },
         Err(e) => {
             error!("failed to get data {}", e);

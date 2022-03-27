@@ -16,7 +16,7 @@ async fn main() {
         .await;
     consumer
         .consume("test", |payload| {
-            let payload_clone = payload.clone();
+            let payload_clone = payload;
             producer.send(String::from("key2"), payload_clone, String::from("topic2"))
         })
         .await;

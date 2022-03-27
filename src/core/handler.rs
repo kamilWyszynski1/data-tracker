@@ -6,7 +6,7 @@ use crate::lang::variable::Variable;
 use crate::persistance::interface::{Db, Persistance};
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
-use log::{debug, info};
+use log::info;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
@@ -239,19 +239,19 @@ fn create_range(
         "Starting position must be a single character."
     );
     let number = starting_position[1..].parse::<u32>().unwrap();
-    let mut range;
-    match direction {
+
+    let mut range: String = match direction {
         Direction::Vertical => {
-            range = format!(
+            format!(
                 "{}{}:{}{}",
                 character,
                 offset + number,
                 character,
                 offset + number + data_len
-            );
+            )
         }
         Direction::Horizontal => {
-            range = format!(
+            format!(
                 "{}{}:{}{}",
                 add_str(character, offset),
                 number,
@@ -259,7 +259,7 @@ fn create_range(
                 number,
             )
         }
-    }
+    };
     if !sheet.is_empty() {
         range = format!("{}!{}", sheet, range);
     }

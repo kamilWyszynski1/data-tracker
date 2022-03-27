@@ -39,13 +39,13 @@ jobs:
       - setup-sccache
       - restore-sccache-cache
       - run: cargo --version
-      - run:
-          name: Run build
-          command: "cargo build"
+      # - run:
+      #     name: Run build
+      #     command: "cargo build"
       - run:
           name: Run Tests
           command: "cargo test"
       - run:
           name: fmt
-          command: "cargo fmt"
+          command: "make lint"
       - save-sccache-cache

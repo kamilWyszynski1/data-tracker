@@ -1,4 +1,4 @@
-use crate::tracker::manager::{Command, TaskCommand};
+use crate::core::manager::{Command, TaskCommand};
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::State;
@@ -44,8 +44,8 @@ pub async fn apply(
 
 #[cfg(test)]
 mod tests {
-    use crate::tracker::manager::{Command, TaskCommand};
-    use crate::tracker::task::TrackingTask;
+    use crate::core::manager::{Command, TaskCommand};
+    use crate::core::task::TrackingTask;
     use crate::web::build::rocket;
     use rocket::http::{ContentType, Status};
     use rocket::local::asynchronous::Client;

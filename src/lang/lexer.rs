@@ -1,6 +1,10 @@
-use super::{engine::Engine, variable::Variable};
+use super::{
+    engine::{Definition, Engine},
+    variable::Variable,
+};
 use crate::lang::variable::value_object_to_variable_object;
 use core::panic;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{self, Display};
 
@@ -17,7 +21,7 @@ pub enum EvalError {
     },
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Enum for Node type.
 enum NodeEnum {
     None,
@@ -31,7 +35,38 @@ impl NodeEnum {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
+pub struct EvalForest {
+    roots: Vec<Node>,
+}
+
+impl EvalForest {
+    pub fn default() -> Self {
+        EvalForest { roots: vec![] }
+    }
+
+    pub fn from_definition(def: &Definition) -> Self {
+        let mut roots = vec![];
+        for step in def.clone().into_iter() {
+            assert_eq!(step.matches('(').count(), step.matches(')').count());
+            let tokens = Lexer::new(&step).make_tokens();
+            let root = Parser::new(tokens).parse();
+            roots.push(root);
+        }
+        EvalForest { roots }
+    }
+}
+
+impl IntoIterator for EvalForest {
+    type Item = Node;
+    type IntoIter = <Vec<Node> as IntoIterator>::IntoIter; // so that you don't have to write std::vec::IntoIter, which nobody remembers anyway
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.roots.into_iter()
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Node represents single node in lexer chain.
 /// Struct contains value which is type of Node -> var or keyword.
 /// Vector of nodes are all params that were passed to keyword function and will
@@ -49,7 +84,7 @@ impl Display for Node {
 
 impl Node {
     /// Returns default value for Node.
-    fn default() -> Self {
+    pub fn default() -> Self {
         Node {
             value: NodeEnum::default(),
             nodes: vec![],
@@ -81,6 +116,22 @@ impl Node {
     fn append(&mut self, n: Node) -> Self {
         self.push(n);
         self.clone()
+    }
+
+    /// Serializes whole tree to json string.
+    fn to_string(&self) -> Result<String, EvalError> {
+        serde_json::to_string(self).map_err(|err| EvalError::Internal {
+            operation: String::from("to_string"),
+            msg: err.to_string(),
+        })
+    }
+
+    /// Loads tree from json string.
+    fn from_string(s: &str) -> Result<Self, EvalError> {
+        serde_json::from_str::<Self>(s).map_err(|err| EvalError::Internal {
+            operation: String::from("from_string"),
+            msg: err.to_string(),
+        })
     }
 
     /// Evaluates whole tree to a single Variable.
@@ -413,7 +464,7 @@ where
 }
 
 /// All supported keyword that can be used in steps declarations.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum Keyword {
     None,   // default value, not supported by language.
     Define, // defines new variable: DEFINE(var, 1).
@@ -1057,5 +1108,28 @@ mod tests {
             "var2".to_string(),
             Variable::String(String::from("delectus aut autem")),
         );
+    }
+
+    #[test]
+    fn test_tree_serialization() {
+        let data = r#"
+        {
+            "name": "John Doe",
+            "age": 43,
+            "phones": [
+                "+44 1234567",
+                "+44 2345678"
+            ]
+        }"#;
+
+        let tokens = Lexer::new(
+            format!("DEFINE(var, VEC(1, INT(2), FLOAT(3.2), JSON('{}')))", data).as_str(),
+        )
+        .make_tokens();
+        let root = Parser::new(tokens).parse();
+
+        let serialized = serde_json::to_string(&root).unwrap();
+        let deserialized = serde_json::from_str::<Node>(&serialized).unwrap();
+        assert_eq!(root, deserialized);
     }
 }

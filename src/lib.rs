@@ -4,10 +4,15 @@
 pub mod core;
 pub mod data;
 pub mod lang;
+pub mod models;
 pub mod persistance;
+pub mod schema;
 pub mod shutdown;
 pub mod web;
 pub mod wrap;
+
+#[macro_use]
+extern crate diesel;
 
 extern crate google_sheets4 as sheets4;
 extern crate hyper;

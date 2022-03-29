@@ -1,14 +1,15 @@
+use crate::data::getter::getter_from_url;
+use crate::lang::lexer::EvalForest;
+use crate::web::task::TaskCreateRequest;
 use serde::Deserialize;
 use serde_json::Value;
+use std::fmt::{self, Display, Formatter};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 use uuid::Uuid;
-
-use crate::data::getter::getter_from_url;
-use crate::lang::engine::Definition;
-use crate::web::task::TaskCreateRequest;
 
 /// Supported types for task's input data.
 /// Should match with InputData.
@@ -26,7 +27,7 @@ pub enum InputData {
     Json(Value),
 }
 
-//type aliases added, because this is a chonker of a type
+// type aliases added, because this is a chonker of a type
 type GetDataResult = Result<InputData, &'static str>;
 type BoxFn<T> = Box<dyn Fn() -> T + Send + Sync>;
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
@@ -44,6 +45,16 @@ pub enum Direction {
     Horizontal, // data will be written in rows.
 }
 
+impl Display for Direction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let v = match self {
+            Direction::Vertical => "vertical",
+            Direction::Horizontal => "horizontal",
+        };
+        write!(f, "{:?}", v)
+    }
+}
+
 // TimestampPosition indicates position of timestamp in the data.
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub enum TimestampPosition {
@@ -55,22 +66,26 @@ pub enum TimestampPosition {
 // CallbackFn is a type wrap for callback function.
 type CallbackFn = fn(Result<(), &'static str>) -> ();
 
+#[derive(Clone)]
 // TrackingTask holds information about tracking task.
 pub struct TrackingTask {
-    id: Uuid,                    // task id.
-    name: Option<String>,        // task name.
-    description: Option<String>, // task description.
+    pub id: Uuid,                              // task id.
+    pub name: Option<String>,                  // task name.
+    pub description: Option<String>,           // task description.
+    pub data_fn: Arc<BoxFnThatReturnsAFuture>, // function that returns data to be written.
+    pub spreadsheet_id: String,                // spreadsheet where data will be written.
+    pub starting_position: String, // starting position of data in the spreadsheet. A1 notation.
+    pub sheet: String,             // exact sheet of spreadsheet. Default is empty, first sheet.
+    pub direction: Direction,
+    pub interval: Duration,   // interval between data writes.
+    pub with_timestamp: bool, // whether to write timestamp.
+    pub timestamp_position: TimestampPosition,
+    pub invocations: Option<i32>, // number of invocations.
 
-    data_fn: BoxFnThatReturnsAFuture, // function that returns data to be written.
-    spreadsheet_id: String,           // spreadsheet where data will be written.
-    starting_position: String,        // starting position of data in the spreadsheet. A1 notation.
-    sheet: String,                    // exact sheet of spreadsheet. Default is empty, first sheet.
-    direction: Direction,
-    interval: Duration,   // interval between data writes.
-    with_timestamp: bool, // whether to write timestamp.
-    timestamp_position: TimestampPosition,
-    invocations: Option<i32>, // number of invocations.
-    definition: Definition,   // definition of handling data.
+    pub eval_forest: EvalForest, // definition of handling data.
+
+    pub url: String,
+    pub input_type: InputType,
 
     pub callbacks: Option<Vec<CallbackFn>>,
 }
@@ -84,6 +99,8 @@ impl TrackingTask {
         direction: Direction,
         data_fn: BoxFnThatReturnsAFuture,
         interval: Duration,
+        input_type: InputType,
+        url: String,
     ) -> TrackingTask {
         assert_ne!(spreadsheet_id, "", "spreadsheet_id cannot be empty");
         assert!(
@@ -94,7 +111,7 @@ impl TrackingTask {
             id: Uuid::new_v4(),
             name: None,
             description: None,
-            data_fn,
+            data_fn: Arc::new(data_fn),
             spreadsheet_id,
             sheet,
             starting_position,
@@ -104,7 +121,9 @@ impl TrackingTask {
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
-            definition: Definition::new(vec![]),
+            eval_forest: EvalForest::default(),
+            input_type,
+            url,
         }
     }
 
@@ -208,10 +227,6 @@ impl TrackingTask {
         self.starting_position.clone()
     }
 
-    pub fn definition(&self) -> &Definition {
-        &self.definition
-    }
-
     /// returns String that can be put into logs.
     pub fn info(&self) -> String {
         if let Some(name) = &self.name {
@@ -237,15 +252,17 @@ impl TrackingTask {
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
-            definition: tcr.definition,
-            data_fn: getter_from_url(&tcr.url, tcr.input_type),
+            eval_forest: EvalForest::from_definition(&tcr.definition),
+            data_fn: Arc::new(getter_from_url(&tcr.url, tcr.input_type)),
+            input_type: tcr.input_type,
+            url: tcr.url,
         })
     }
 }
 
 mod test {
     #[allow(unused_imports)]
-    use crate::core::task::{Direction, InputData, TrackingTask};
+    use crate::core::task::{Direction, InputData, InputType, TrackingTask};
 
     #[allow(dead_code)]
     async fn test_get_data_fn() -> Result<InputData, &'static str> {
@@ -260,6 +277,8 @@ mod test {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
+            InputType::String,
+            String::from(""),
         );
         tt = tt.with_callback(|res: Result<(), &'static str>| {
             assert!(res.is_ok());
@@ -277,6 +296,8 @@ mod test {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
+            InputType::String,
+            String::from(""),
         );
         tt = tt.with_name("test".to_string());
         assert!(tt.name() != "");
@@ -292,6 +313,8 @@ mod test {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
+            InputType::String,
+            String::from(""),
         );
         tt = tt.with_description("test".to_string());
         assert_eq!(tt.description(), "test")

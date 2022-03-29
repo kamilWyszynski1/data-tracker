@@ -1,9 +1,9 @@
 use super::manager::Command;
 use super::task::{Direction, InputData, TrackingTask};
-use crate::lang::engine::{Definition, Engine};
-use crate::lang::lexer::EvalError;
+use crate::lang::engine::Engine;
+use crate::lang::lexer::{EvalError, EvalForest};
 use crate::lang::variable::Variable;
-use crate::persistance::interface::{Db, Persistance};
+use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
 use log::info;
@@ -19,11 +19,11 @@ enum State {
     Quit,
 }
 
-pub struct TaskHandler<P: Persistance, A: API> {
+pub struct TaskHandler<A: API> {
     /// Task that is being handled by TaskHandler.
     task: TrackingTask,
     /// Shared persistance layer to handle task.
-    db: Db<P>,
+    db: Db,
     /// Shared API for handling task.
     api: Arc<A>,
     /// Indicates whether or not server was shutdown.
@@ -34,14 +34,13 @@ pub struct TaskHandler<P: Persistance, A: API> {
     receiver: Receiver<Command>,
 }
 
-impl<P, A> TaskHandler<P, A>
+impl<A> TaskHandler<A>
 where
-    P: Persistance,
     A: API,
 {
     pub fn new(
         task: TrackingTask,
-        db: Db<P>,
+        db: Db,
         shutdown: Shutdown,
         api: Arc<A>,
         receiver: Receiver<Command>,
@@ -150,7 +149,7 @@ where
         let result = self.task.data().await.unwrap();
         info!("got from data_fn: {:?}", result);
 
-        let evaluated = evaluate_data(result, self.task.definition());
+        let evaluated = evaluate_data(result, &self.task.eval_forest);
         info!("evaluated from engine: {:?}", &evaluated);
 
         match evaluated {
@@ -193,9 +192,9 @@ where
 }
 
 /// Function creates new engine and calls fire method for given Definition.
-fn evaluate_data(data: InputData, definition: &Definition) -> Result<Variable, EvalError> {
+fn evaluate_data(data: InputData, ef: &EvalForest) -> Result<Variable, EvalError> {
     let mut e = Engine::new(Variable::from_input_data(&data));
-    e.fire(definition)?;
+    e.fire(ef)?;
     Ok(e.get(String::from("OUT"))
         .ok_or(EvalError::Internal {
             operation: String::from("evaluate_data"),

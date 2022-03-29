@@ -1,7 +1,7 @@
 use super::handler::TaskHandler;
 use super::manager::{SenderManager, TaskCommand};
 use super::task::TrackingTask;
-use crate::persistance::interface::{Db, Persistance};
+use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
 use std::marker::{Send, Sync};
@@ -11,15 +11,14 @@ use tokio::sync::mpsc::Receiver;
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
-pub struct Tracker<A, P>
+pub struct Tracker<A>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance + Send + Clone,
 {
     /// Performs write of a data.
     api: Arc<A>,
     /// Saves last state of handled task.
-    db: Db<P>,
+    db: Db,
     /// Listen for incoming TrackingTask to handle.
     task_channel: Receiver<TrackingTask>,
     /// Listen for incoming Command for Task to handle.
@@ -40,15 +39,14 @@ where
     manager: SenderManager,
 }
 
-impl<A, P> Tracker<A, P>
+impl<A> Tracker<A>
 where
     A: 'static + API + Sync + Send + Clone,
-    P: 'static + Persistance + Send + Clone,
 {
     // creates new Tracker.
     pub fn new(
         api: A,
-        persistance: P,
+        db: Db,
         task_channel: Receiver<TrackingTask>,
         shutdown_channel: broadcast::Receiver<()>,
         notify_shutdown: broadcast::Sender<()>,
@@ -58,7 +56,7 @@ where
             api: Arc::new(api),
             task_channel,
             task_command_channel,
-            db: Db::new(persistance),
+            db,
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
             manager: SenderManager::default(),
@@ -77,6 +75,10 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
+                    if let Err(e)  = self.db.save_task(&task).await {
+                        error!("{}", e);
+                        continue; // do not handle task if save to db failed.
+                    };
                     let receiver = self.manager.add_new_mapping(task.id());
                     let mut handler = TaskHandler::new(task, self.db.clone(), Shutdown::new(self.notify_shutdown.subscribe()), self.api.clone(), receiver);
                     spawned.push(tokio::task::spawn(async move {handler.start().await}));
@@ -95,7 +97,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::core::task::{Direction, InputData, TrackingTask};
+    use crate::core::task::*;
     use crate::core::tracker::Tracker;
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
@@ -132,21 +134,9 @@ mod tests {
     }
 
     use crate::core::tracker::TaskCommand;
-    use crate::persistance::interface::Persistance;
+    use crate::persistance::interface::{Db, MockPersistance};
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
-    use uuid::Uuid;
-
-    #[derive(Clone)]
-    struct TestPersistance {}
-    impl Persistance for TestPersistance {
-        fn write(&mut self, _: Uuid, _: u32) -> Result<(), &'static str> {
-            Ok(())
-        }
-        fn read(&self, _: &Uuid) -> Option<u32> {
-            None
-        }
-    }
 
     #[tokio::test]
     #[timeout(10000)]
@@ -183,13 +173,15 @@ mod tests {
 
         let fail_msg = "";
 
+        let mock_persistence = MockPersistance::new();
+
         let mut t = Tracker::new(
             TestAPI {
                 check: check_cases,
                 fail: false,
                 fail_msg: fail_msg,
             },
-            TestPersistance {},
+            Db::new(Box::new(mock_persistence)),
             receive,
             shutdown,
             shutdown_notify,
@@ -208,6 +200,8 @@ mod tests {
                     Direction::Vertical,
                     Box::new(move || Box::pin(test_get_data_fn())),
                     std::time::Duration::from_secs(1),
+                    InputType::String,
+                    String::from("")
                 )
                 .with_name("TEST4".to_string())
                 .with_invocations(1),
@@ -223,6 +217,8 @@ mod tests {
                     Direction::Vertical,
                     Box::new(move || Box::pin(test_get_data_fn())),
                     std::time::Duration::from_secs(1),
+                    InputType::String,
+                    String::from("")
                 )
                 .with_name("TEST5".to_string())
                 .with_callback(c(tx))

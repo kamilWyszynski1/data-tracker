@@ -1,54 +1,63 @@
 use super::interface::Persistance;
-use rusqlite::{params, Connection};
-use std::error::Error;
+use crate::core::task::TrackingTask;
+use crate::diesel::OptionalExtension;
+use crate::diesel::RunQueryDsl;
+use crate::models::location::Location;
+use crate::schema::*;
+use diesel::{insert_into, ExpressionMethods, QueryDsl};
+use diesel::{Connection, SqliteConnection};
+use std::env;
 use std::result::Result;
 use uuid::Uuid;
+
+pub fn establish_connection() -> SqliteConnection {
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    SqliteConnection::establish(&database_url)
+        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+}
 
 /// SqliteClient is a sqlite implementation of Persistance trait.
 pub struct SqliteClient {
     /// sqlite connection.
-    conn: Connection,
+    conn: SqliteConnection,
 }
 
 impl SqliteClient {
-    pub fn new(conn: Connection) -> Self {
+    pub fn new(conn: SqliteConnection) -> Self {
         SqliteClient { conn }
     }
 }
 
 impl Persistance for SqliteClient {
-    fn write(&mut self, key: Uuid, value: u32) -> Result<(), &'static str> {
-        match self.conn.execute(
-            "INSERT INTO tasks VALUES (?1, ?2)",
-            params![key.to_string(), value],
-        ) {
-            Err(_) => Err("could not write to db"),
-            Ok(_) => Ok(()),
-        }
+    fn save_location(&mut self, key: Uuid, value: u32) -> Result<(), &'static str> {
+        let l = Location {
+            key: key.to_string(),
+            value: value.try_into().unwrap(),
+        };
+        insert_into(location::table)
+            .values(&l)
+            .execute(&self.conn)
+            .expect("Error saving location");
+        Ok(())
     }
 
-    fn read(&self, key: &Uuid) -> Option<u32> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM tasks WHERE id = ?")
-            .unwrap();
+    fn read_location(&self, k: &Uuid) -> Option<u32> {
+        use crate::schema::location::dsl::*;
 
-        let value: Result<u32, rusqlite::Error> =
-            stmt.query_row([key.to_string()], |row| Ok(row.get(0).unwrap()));
-        value.ok()
+        location
+            .filter(key.eq(k.to_string()))
+            .first(&self.conn)
+            .optional()
+            .ok()?
+            .map(|l: Location| l.value as u32)
     }
-}
 
-/// initializes sqlite connection along with db table init.
-pub fn init(path: &str) -> Result<Connection, Box<dyn Error>> {
-    let conn = Connection::open(path)?;
+    fn save_task(&mut self, _t: &TrackingTask) -> Result<(), String> {
+       
+        Ok(())
+    }
 
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS tasks (
-        id string primary key,
-        value integer not null
-    )",
-        [],
-    )?;
-    Ok(conn)
+    fn read_task(&mut self, _id: Uuid) -> Result<TrackingTask, String> {
+        todo!()
+    }
 }

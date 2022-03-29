@@ -3,6 +3,7 @@ use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::TrackingTask;
 use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
+use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::web::build::rocket;
 use datatracker_rust::wrap::APIWrapper;
 use tokio::join;
@@ -23,7 +24,7 @@ async fn main() {
     let mem = InMemoryPersistance::new();
     let mut tracker = Tracker::new(
         api,
-        mem,
+        Db::new(Box::new(mem)),
         receive,
         shutdown_recv,
         shutdown_notify.clone(),

@@ -1,6 +1,5 @@
-use super::lexer::{EvalError, Lexer, Parser};
+use super::lexer::{EvalError, EvalForest};
 use super::variable::Variable;
-use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -59,14 +58,8 @@ impl Engine {
     }
 
     /// Takes definition run it step by step.
-    pub fn fire(&mut self, definition: &Definition) -> Result<(), EvalError> {
-        info!("firing with definition: {:?}", definition);
-
-        for s in &definition.steps {
-            info!("evaluating step: {:?}", s);
-            // make sure that all opened braces are closed.
-            assert_eq!(s.matches('(').count(), s.matches(')').count());
-            let root = Parser::new(Lexer::new(s).make_tokens()).parse();
+    pub fn fire(&mut self, ef: &EvalForest) -> Result<(), EvalError> {
+        for root in ef.clone().into_iter() {
             root.eval(self)?;
         }
         Ok(())

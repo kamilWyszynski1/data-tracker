@@ -1,4 +1,3 @@
-use crate::schema::tasks;
 use diesel::backend::Backend;
 use diesel::deserialize;
 use diesel::serialize::{self, Output};

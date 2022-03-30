@@ -1,9 +1,8 @@
 use super::direction::Direction;
-use super::intype::InputType;
 use super::manager::Command;
 use super::task::{InputData, TrackingTask};
 use crate::lang::engine::Engine;
-use crate::lang::lexer::{EvalError, EvalForest};
+use crate::lang::lexer::{evaluate_data, EvalForest};
 use crate::lang::variable::Variable;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
@@ -152,10 +151,10 @@ where
         info!("got from data_fn: {:?}", result);
 
         let evaluated = evaluate_data(result, &self.task.eval_forest);
-        info!("evaluated from engine: {:?}", &evaluated);
-
         match evaluated {
             Ok(data) => {
+                info!("evaluated from engine: {:?}", &data);
+
                 let data = create_write_vec(self.task.direction(), data);
 
                 let last_place = self.db.get(&self.task.id()).await.unwrap_or(0);
@@ -191,18 +190,6 @@ where
             }
         }
     }
-}
-
-/// Function creates new engine and calls fire method for given Definition.
-fn evaluate_data(data: InputData, ef: &EvalForest) -> Result<Variable, EvalError> {
-    let mut e = Engine::new(Variable::from_input_data(&data));
-    e.fire(ef)?;
-    Ok(e.get(String::from("OUT"))
-        .ok_or(EvalError::Internal {
-            operation: String::from("evaluate_data"),
-            msg: String::from("There is not OUT variable!!!"),
-        })?
-        .clone())
 }
 
 // create_write_vec creates a vector of WriteData from a TrackedData.

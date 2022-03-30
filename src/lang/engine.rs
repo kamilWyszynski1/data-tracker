@@ -1,4 +1,4 @@
-use super::lexer::{EvalError, EvalForest};
+use super::lexer::{EvalForest, EvalResult};
 use super::variable::Variable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -58,7 +58,7 @@ impl Engine {
     }
 
     /// Takes definition run it step by step.
-    pub fn fire(&mut self, ef: &EvalForest) -> Result<(), EvalError> {
+    pub fn fire(&mut self, ef: &EvalForest) -> EvalResult<()> {
         for root in ef.clone().into_iter() {
             root.eval(self)?;
         }

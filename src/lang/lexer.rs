@@ -3,23 +3,13 @@ use super::{
     variable::Variable,
 };
 use crate::lang::variable::value_object_to_variable_object;
+use crate::{core::task::InputData, error::error::Error};
 use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{self, Display};
 
-#[derive(Debug)]
-pub enum EvalError {
-    InvalidType {
-        operation: String,
-        t: String,
-        wanted: String,
-    },
-    Internal {
-        operation: String,
-        msg: String,
-    },
-}
+pub type EvalResult<T> = Result<T, Error>;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Enum for Node type.
@@ -57,19 +47,16 @@ impl EvalForest {
     }
 
     /// Serializes whole tree to json string.
-    pub fn to_string(&self) -> Result<String, EvalError> {
-        serde_json::to_string(self).map_err(|err| EvalError::Internal {
-            operation: String::from("to_string"),
-            msg: err.to_string(),
-        })
+    pub fn to_string(&self) -> EvalResult<String> {
+        let a = serde_json::to_string(self)
+            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()));
+        a
     }
 
     /// Loads tree from json string.
-    pub fn from_string(s: &str) -> Result<Self, EvalError> {
-        serde_json::from_str::<Self>(s).map_err(|err| EvalError::Internal {
-            operation: String::from("from_string"),
-            msg: err.to_string(),
-        })
+    pub fn from_string(s: &str) -> EvalResult<Self> {
+        serde_json::from_str::<Self>(s)
+            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
     }
 }
 
@@ -135,19 +122,15 @@ impl Node {
     }
 
     /// Serializes whole tree to json string.
-    fn to_string(&self) -> Result<String, EvalError> {
-        serde_json::to_string(self).map_err(|err| EvalError::Internal {
-            operation: String::from("to_string"),
-            msg: err.to_string(),
-        })
+    fn to_string(&self) -> EvalResult<String> {
+        serde_json::to_string(self)
+            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
     }
 
     /// Loads tree from json string.
-    fn from_string(s: &str) -> Result<Self, EvalError> {
-        serde_json::from_str::<Self>(s).map_err(|err| EvalError::Internal {
-            operation: String::from("from_string"),
-            msg: err.to_string(),
-        })
+    fn from_string(s: &str) -> EvalResult<Self> {
+        serde_json::from_str::<Self>(s)
+            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
     }
 
     /// Evaluates whole tree to a single Variable.
@@ -156,7 +139,7 @@ impl Node {
     /// this function will go trough tree created from that declaration
     /// and evaluate root node and all of nodes below in order to return
     /// single Variable as a result.
-    pub fn eval(&self, state: &mut Engine) -> Result<Variable, EvalError> {
+    pub fn eval(&self, state: &mut Engine) -> EvalResult<Variable> {
         match self.value {
             NodeEnum::None => todo!(),
             NodeEnum::Keyword(ref keyword) => {
@@ -164,7 +147,7 @@ impl Node {
                     .nodes
                     .iter()
                     .map(|n| n.eval(state))
-                    .collect::<Result<Vec<Variable>, EvalError>>()?;
+                    .collect::<EvalResult<Vec<Variable>>>()?;
 
                 match keyword {
                     Keyword::Bool => bool(&nodes),
@@ -189,32 +172,21 @@ impl Node {
     }
 }
 
-fn bool(nodes: &[Variable]) -> Result<Variable, EvalError> {
+fn bool(nodes: &[Variable]) -> EvalResult<Variable> {
     Ok(Variable::Bool(parse_single_param(nodes).map_err(
-        |err| EvalError::Internal {
-            operation: String::from("bool"),
-            msg: err,
-        },
+        |err| Error::new_eval_internal(String::from("bool"), err.to_string()),
     )?))
 }
 
-fn int(nodes: &[Variable]) -> Result<Variable, EvalError> {
+fn int(nodes: &[Variable]) -> EvalResult<Variable> {
     Ok(Variable::Int(parse_single_param(nodes).map_err(|err| {
-        EvalError::Internal {
-            operation: String::from("bool"),
-            msg: err,
-        }
+        Error::new_eval_internal(String::from("bool"), err.to_string())
     })?))
 }
-fn float(nodes: &[Variable]) -> Result<Variable, EvalError> {
-    Ok(Variable::Float(parse_single_param(nodes).map_err(
-        |err| EvalError::Internal {
-            operation: String::from("bool"),
-            msg: err,
-        },
-    )?))
+fn float(nodes: &[Variable]) -> EvalResult<Variable> {
+    Ok(Variable::Float(parse_single_param(nodes)?))
 }
-fn add(nodes: &[Variable]) -> Result<Variable, EvalError> {
+fn add(nodes: &[Variable]) -> EvalResult<Variable> {
     let mut is_float = false;
     let mut sum: f32 = 0.;
     for n in nodes.iter() {
@@ -225,11 +197,11 @@ fn add(nodes: &[Variable]) -> Result<Variable, EvalError> {
             }
             Variable::Int(i) => sum += i as f32,
             _ => {
-                return Err(EvalError::InvalidType {
-                    operation: String::from("add"),
-                    t: type_of(n),
-                    wanted: String::from("Variable::Float or Variable::Int"),
-                });
+                return Err(Error::new_eval_invalid_type(
+                    String::from("add"),
+                    type_of(n),
+                    String::from("Variable::Float or Variable::Int"),
+                ));
             }
         }
     }
@@ -240,7 +212,7 @@ fn add(nodes: &[Variable]) -> Result<Variable, EvalError> {
 }
 
 /// Subtracts one Variable from another.
-fn sub(nodes: &[Variable]) -> Result<Variable, EvalError> {
+fn sub(nodes: &[Variable]) -> EvalResult<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -251,33 +223,33 @@ fn sub(nodes: &[Variable]) -> Result<Variable, EvalError> {
             if let Variable::Float(f2) = v2 {
                 Ok(Variable::Float(f - f2))
             } else {
-                Err(EvalError::InvalidType {
-                    operation: String::from("sub"),
-                    t: type_of(v2),
-                    wanted: String::from("Variable::Float"),
-                })
+                Err(Error::new_eval_invalid_type(
+                    String::from("sub"),
+                    type_of(v2),
+                    String::from("Variable::Float"),
+                ))
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
                 Ok(Variable::Int(i - i2))
             } else {
-                Err(EvalError::InvalidType {
-                    operation: String::from("add"),
-                    t: type_of(v2),
-                    wanted: String::from("Variable::Int"),
-                })
+                Err(Error::new_eval_invalid_type(
+                    String::from("add"),
+                    type_of(v2),
+                    String::from("Variable::Int"),
+                ))
             }
         }
-        _ => Err(EvalError::InvalidType {
-            operation: String::from("add"),
-            t: type_of(v1),
-            wanted: String::from("Variable::Float or Variable::Int"),
-        }),
+        _ => Err(Error::new_eval_invalid_type(
+            String::from("add"),
+            type_of(v1),
+            String::from("Variable::Float or Variable::Int"),
+        )),
     }
 }
 /// Divides one Variable by another.
-fn div(nodes: &[Variable]) -> Result<Variable, EvalError> {
+fn div(nodes: &[Variable]) -> EvalResult<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -288,34 +260,34 @@ fn div(nodes: &[Variable]) -> Result<Variable, EvalError> {
             if let Variable::Float(f2) = v2 {
                 Ok(Variable::Float(f / f2))
             } else {
-                Err(EvalError::InvalidType {
-                    operation: String::from("add"),
-                    t: type_of(v2),
-                    wanted: String::from("Variable::Float"),
-                })
+                Err(Error::new_eval_invalid_type(
+                    String::from("add"),
+                    type_of(v2),
+                    String::from("Variable::Float"),
+                ))
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
                 Ok(Variable::Int(i / i2))
             } else {
-                Err(EvalError::InvalidType {
-                    operation: String::from("add"),
-                    t: type_of(v2),
-                    wanted: String::from("Variable::Int"),
-                })
+                Err(Error::new_eval_invalid_type(
+                    String::from("add"),
+                    type_of(v2),
+                    String::from("Variable::Int"),
+                ))
             }
         }
-        _ => Err(EvalError::InvalidType {
-            operation: String::from("add"),
-            t: type_of(v1),
-            wanted: String::from("Variable::Float or Variable::Int"),
-        }),
+        _ => Err(Error::new_eval_invalid_type(
+            String::from("add"),
+            type_of(v1),
+            String::from("Variable::Float or Variable::Int"),
+        )),
     }
 }
 
 /// Multiplies one Variable by another.
-fn mult(nodes: &[Variable]) -> Result<Variable, EvalError> {
+fn mult(nodes: &[Variable]) -> EvalResult<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -326,29 +298,29 @@ fn mult(nodes: &[Variable]) -> Result<Variable, EvalError> {
             if let Variable::Float(f2) = v2 {
                 Ok(Variable::Float(f * f2))
             } else {
-                Err(EvalError::InvalidType {
-                    operation: String::from("add"),
-                    t: type_of(&v2),
-                    wanted: String::from("Variable::Float"),
-                })
+                Err(Error::new_eval_invalid_type(
+                    String::from("add"),
+                    type_of(&v2),
+                    String::from("Variable::Float"),
+                ))
             }
         }
         Variable::Int(i) => {
             if let Variable::Int(i2) = v2 {
                 Ok(Variable::Int(i * i2))
             } else {
-                Err(EvalError::InvalidType {
-                    operation: String::from("add"),
-                    t: type_of(&v2),
-                    wanted: String::from("Variable::Int"),
-                })
+                Err(Error::new_eval_invalid_type(
+                    String::from("add"),
+                    type_of(&v2),
+                    String::from("Variable::Int"),
+                ))
             }
         }
-        _ => Err(EvalError::InvalidType {
-            operation: String::from("add"),
-            t: type_of(&v1),
-            wanted: String::from("Variable::Float or Variable::Int"),
-        }),
+        _ => Err(Error::new_eval_invalid_type(
+            String::from("add"),
+            type_of(&v1),
+            String::from("Variable::Float or Variable::Int"),
+        )),
     }
 }
 fn type_of<T>(_: &T) -> String {
@@ -356,19 +328,17 @@ fn type_of<T>(_: &T) -> String {
 }
 
 // Extracts field/index from wanted Variable.
-fn extract(nodes: &[Variable]) -> Result<Variable, EvalError> {
+fn extract(nodes: &[Variable]) -> EvalResult<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
-    v1.extract(v2).map_err(|err| EvalError::Internal {
-        operation: String::from("extract"),
-        msg: err,
-    })
+    v1.extract(v2)
+        .map_err(|err| Error::new_eval_internal(String::from("extract"), err.to_string()))
 }
 
 // Defines new variable and writes it to a state.
-fn define(nodes: &[Variable], state: &mut Engine) -> Result<Variable, EvalError> {
+fn define(nodes: &[Variable], state: &mut Engine) -> EvalResult<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -377,106 +347,106 @@ fn define(nodes: &[Variable], state: &mut Engine) -> Result<Variable, EvalError>
     if let Variable::String(s) = v1 {
         state.set(s.to_string(), v2);
     } else {
-        return Err(EvalError::InvalidType {
-            operation: String::from("define"),
-            t: type_of(v1),
-            wanted: String::from("Variable::String"),
-        });
+        return Err(Error::new_eval_invalid_type(
+            String::from("define"),
+            type_of(v1),
+            String::from("Variable::String"),
+        ));
     }
 
     Ok(Variable::None)
 }
 
 // Returns declared variable.
-fn get(nodes: &[Variable], state: &Engine) -> Result<Variable, EvalError> {
-    let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
-        operation: String::from("bool"),
-        msg: err,
-    })?;
+fn get(nodes: &[Variable], state: &Engine) -> EvalResult<Variable> {
+    let v = parse_single_param::<String>(nodes)
+        .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
 
-    let g = state.get(v).ok_or(EvalError::Internal {
-        operation: String::from("get"),
-        msg: String::from("variable not found"),
-    })?;
+    let g = state.get(v).ok_or(Error::new_eval_internal(
+        String::from("get"),
+        String::from("variable not found"),
+    ))?;
     Ok(g.clone())
 }
 
 // Returns Variable::Object parsed from json-like string.
-fn object(nodes: &[Variable]) -> Result<Variable, EvalError> {
-    let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
-        operation: String::from("bool"),
-        msg: err,
-    })?;
+fn object(nodes: &[Variable]) -> EvalResult<Variable> {
+    let v = parse_single_param::<String>(nodes)
+        .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
 
-    let obj: Value = serde_json::from_str(&v).map_err(|err| EvalError::Internal {
-        operation: String::from("object"),
-        msg: err.to_string(),
-    })?;
+    let obj: Value = serde_json::from_str(&v)
+        .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
     if !obj.is_object() {
-        return Err(EvalError::Internal {
-            operation: String::from("object"),
-            msg: String::from("json Value is not an object"),
-        });
+        return Err(Error::new_eval_internal(
+            String::from("object"),
+            String::from("json Value is not an object"),
+        ));
     }
     Ok(value_object_to_variable_object(obj))
 }
 
 // Returns Variable::Json.
-fn json(nodes: &[Variable]) -> Result<Variable, EvalError> {
-    let v = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
-        operation: String::from("object"),
-        msg: err,
-    })?;
-    let obj: Value = serde_json::from_str(&v).map_err(|err| EvalError::Internal {
-        operation: String::from("object"),
-        msg: err.to_string(),
-    })?;
+fn json(nodes: &[Variable]) -> EvalResult<Variable> {
+    let v = parse_single_param::<String>(nodes)
+        .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
+    let obj: Value = serde_json::from_str(&v)
+        .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
     Ok(Variable::Json(obj))
 }
 
 // Performs GET http request, returns Variable::Json.
-fn http(nodes: &[Variable]) -> Result<Variable, EvalError> {
-    let url = parse_single_param::<String>(nodes).map_err(|err| EvalError::Internal {
-        operation: String::from("http"),
-        msg: err,
-    })?;
+fn http(nodes: &[Variable]) -> EvalResult<Variable> {
+    let url = parse_single_param::<String>(nodes)
+        .map_err(|err| Error::new_eval_internal(String::from("http"), err.to_string()))?;
 
     let body = reqwest::blocking::get(url)
-        .map_err(|err| EvalError::Internal {
-            operation: String::from("http"),
-            msg: err.to_string(),
-        })?
+        .map_err(|err| Error::new_eval_internal(String::from("http"), err.to_string()))?
         .json()
-        .map_err(|err| EvalError::Internal {
-            operation: String::from("http"),
-            msg: err.to_string(),
-        })?;
+        .map_err(|err| Error::new_eval_internal(String::from("http"), err.to_string()))?;
     Ok(Variable::Json(body))
 }
 
 /// Parses single Variable to given type.
-fn parse_single_param<T>(nodes: &[Variable]) -> Result<T, String>
+fn parse_single_param<T>(nodes: &[Variable]) -> EvalResult<T>
 where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
-    let param = nodes.first().ok_or("There's not variable")?;
+    let param = nodes.first().ok_or(Error::new_eval_internal(
+        "parse_single_param".to_string(),
+        "There's not variable".to_string(),
+    ))?;
     parse_type(param)
 }
 
 /// Parses Variable to given type.
-fn parse_type<T>(v: &Variable) -> Result<T, String>
+fn parse_type<T>(v: &Variable) -> EvalResult<T>
 where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
     if let Variable::String(s) = v {
-        let a = s
-            .parse::<T>()
-            .map_err(|_| String::from("Could not parse"))?;
+        let a = s.parse::<T>().map_err(|_| {
+            Error::new_eval_internal("parse_type".to_string(), "Could not parse".to_string())
+        })?;
         return Ok(a);
     }
-    Err(String::from("param is not a Variable::string"))
+    Err(Error::new_eval_internal(
+        "parse_type".to_string(),
+        "param is not a Variable::String".to_string(),
+    ))
+}
+
+/// Function creates new engine and calls fire method for given Definition.
+pub fn evaluate_data(data: InputData, ef: &EvalForest) -> EvalResult<Variable> {
+    let mut e = Engine::new(Variable::from_input_data(&data));
+    e.fire(ef)?;
+    Ok(e.get(String::from("OUT"))
+        .ok_or(Error::new_eval_internal(
+            String::from("evaluate_data"),
+            String::from("There is not OUT variable!!!"),
+        ))?
+        .clone())
 }
 
 /// All supported keyword that can be used in steps declarations.
@@ -679,7 +649,7 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use super::{EvalError, Lexer};
+    use super::{EvalResult, Lexer};
     use crate::lang::{
         engine::{Definition, Engine},
         lexer::{Keyword, Node, Parser, Token},
@@ -897,7 +867,7 @@ mod tests {
         )
     }
 
-    fn fire(def: Definition, state: &mut Engine) -> Result<(), EvalError> {
+    fn fire(def: Definition, state: &mut Engine) -> EvalResult<()> {
         for step in def {
             let tokens = Lexer::new(&step).make_tokens();
             let root = Parser::new(tokens).parse();

@@ -117,7 +117,7 @@ impl TrackingTask {
             with_timestamp: true,
             timestamp_position: tm.timestamp_position,
             invocations: None,
-            eval_forest: EvalForest::default(),
+            eval_forest: EvalForest::from_string(&tm.eval_forest).unwrap(),
             url: tm.url.clone(),
             input_type: tm.input_type,
             callbacks: None,

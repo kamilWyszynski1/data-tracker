@@ -81,6 +81,7 @@ mod tests {
     use crate::core::intype::InputType;
     use crate::core::task::{InputData, TrackingTask};
     use crate::core::timestamp::TimestampPosition;
+    use crate::lang::engine::Definition;
     use crate::lang::lexer::EvalForest;
     use crate::persistance::interface::Persistance;
     use diesel::{Connection, SqliteConnection};
@@ -109,6 +110,12 @@ mod tests {
         // This will run the necessary migrations.
         embedded_migrations::run_with_output(&connection, &mut std::io::stdout()).unwrap();
 
+        let eval_forest = EvalForest::from_definition(&Definition::new(vec![
+            String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
+            String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
+            String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
+        ]));
+
         let id = Uuid::parse_str("a54a0fb9-25c9-4f73-ad82-0b7f30ca1ab6").unwrap();
         let tt = TrackingTask {
             id,
@@ -123,7 +130,7 @@ mod tests {
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
-            eval_forest: EvalForest::default(),
+            eval_forest: eval_forest,
             url: String::from("url"),
             input_type: InputType::String,
             callbacks: None,

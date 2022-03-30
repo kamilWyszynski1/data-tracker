@@ -83,7 +83,6 @@ mod tests {
     use crate::core::timestamp::TimestampPosition;
     use crate::lang::lexer::EvalForest;
     use crate::persistance::interface::Persistance;
-    use crate::schema::*;
     use diesel::{Connection, SqliteConnection};
     use diesel_migrations::embed_migrations;
     use std::fs::{self, File};
@@ -123,7 +122,7 @@ mod tests {
             interval: Duration::from_secs(1),
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
-            invocations: Some(1),
+            invocations: None,
             eval_forest: EvalForest::default(),
             url: String::from("url"),
             input_type: InputType::String,

@@ -9,18 +9,18 @@ use diesel::{Insertable, Queryable};
 pub struct TaskModel {
     pub uuid: String,           // task id.
     pub name: String,           // task name.
+    pub description: String,    // task description.
     pub spreadsheet_id: String, // spreadsheet where data will be written.
-    pub sheet: String,          // exact sheet of spreadsheet. Default is empty, first sheet.
     pub position: String,       // starting position of data in the spreadsheet. A1 notation.
+    pub sheet: String,          // exact sheet of spreadsheet. Default is empty, first sheet.
     pub direction: Direction,
-    pub interval_secs: i32, // interval between data writes.
-    pub input_type: InputType,
-    pub url: String,
-    pub description: String, // task description.
-    pub status: String,
+    pub interval_secs: i32,   // interval between data writes.
     pub with_timestamp: bool, // whether to write timestamp.
     pub timestamp_position: TimestampPosition,
     pub eval_forest: String, // definition of handling data.
+    pub url: String,
+    pub input_type: InputType,
+    pub status: String,
 }
 
 impl TaskModel {
@@ -30,7 +30,7 @@ impl TaskModel {
             name: tt.name.as_ref().map(|s| s.clone()).unwrap_or_default(),
             spreadsheet_id: tt.spreadsheet_id.clone(),
             sheet: tt.sheet.clone(),
-            position: String::from("1"),
+            position: tt.starting_position.clone(),
             direction: tt.direction,
             interval_secs: tt.interval.as_secs() as i32,
             input_type: tt.input_type,

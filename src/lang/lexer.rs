@@ -35,7 +35,7 @@ impl NodeEnum {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct EvalForest {
     roots: Vec<Node>,
 }
@@ -54,6 +54,22 @@ impl EvalForest {
             roots.push(root);
         }
         EvalForest { roots }
+    }
+
+    /// Serializes whole tree to json string.
+    pub fn to_string(&self) -> Result<String, EvalError> {
+        serde_json::to_string(self).map_err(|err| EvalError::Internal {
+            operation: String::from("to_string"),
+            msg: err.to_string(),
+        })
+    }
+
+    /// Loads tree from json string.
+    pub fn from_string(s: &str) -> Result<Self, EvalError> {
+        serde_json::from_str::<Self>(s).map_err(|err| EvalError::Internal {
+            operation: String::from("from_string"),
+            msg: err.to_string(),
+        })
     }
 }
 

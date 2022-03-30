@@ -6,9 +6,15 @@ use datatracker_rust::persistance::in_memory::InMemoryPersistance;
 use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::web::build::rocket;
 use datatracker_rust::wrap::APIWrapper;
+use diesel_migrations::embed_migrations;
 use tokio::join;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::channel;
+
+#[macro_use]
+extern crate diesel_migrations;
+
+embed_migrations!("migrations");
 
 #[macro_use]
 extern crate log;

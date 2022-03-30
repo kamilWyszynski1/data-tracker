@@ -1,4 +1,6 @@
-use crate::core::task::{Direction, InputType, TrackingTask};
+use crate::core::direction::Direction;
+use crate::core::intype::InputType;
+use crate::core::task::TrackingTask;
 use crate::lang::engine::Definition;
 use rocket::http::{ContentType, Status};
 use rocket::response::{self, Responder, Response};

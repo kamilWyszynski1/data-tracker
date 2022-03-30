@@ -133,6 +133,8 @@ mod tests {
         }
     }
 
+    use crate::core::direction::Direction;
+    use crate::core::intype::InputType;
     use crate::core::tracker::TaskCommand;
     use crate::persistance::interface::{Db, MockPersistance};
     use tokio::sync::broadcast;

@@ -6,26 +6,24 @@ table! {
 }
 
 table! {
+    use diesel::sql_types::*;
+
     tasks (uuid) {
-        uuid -> Nullable<Text>,
-        name -> Nullable<Text>,
-        spreadsheet_id -> Nullable<Text>,
-        sheet -> Nullable<Text>,
-        position -> Nullable<Text>,
-        direction -> Nullable<Text>,
-        interval_secs -> Nullable<Integer>,
-        input_type -> Nullable<Text>,
-        url -> Nullable<Text>,
-        description -> Nullable<Text>,
-        status -> Nullable<Text>,
-        interval -> Nullable<Text>,
-        with_timestamp -> Nullable<Bool>,
-        timestamp_position -> Nullable<Text>,
-        eval_forest -> Nullable<Text>,
+        uuid -> Text,
+        name -> Text,
+        description -> Text,
+        spreadsheet_id -> Text,
+        position -> Text,
+        sheet -> Text,
+        direction -> Text,
+        interval_secs -> Integer,
+        with_timestamp -> Bool,
+        timestamp_position -> Text,
+        eval_forest -> Text,
+        url -> Text,
+        input_type -> Text,
+        status -> Text,
     }
 }
 
-allow_tables_to_appear_in_same_query!(
-    location,
-    tasks,
-);
+allow_tables_to_appear_in_same_query!(location, tasks,);

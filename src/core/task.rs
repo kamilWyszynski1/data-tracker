@@ -1,24 +1,26 @@
 use crate::data::getter::getter_from_url;
 use crate::lang::lexer::EvalForest;
+use crate::models::task::TaskModel;
 use crate::web::task::TaskCreateRequest;
+use diesel::backend::Backend;
+use diesel::deserialize;
+use diesel::serialize::{self, Output};
+use diesel::sql_types::{self, Text};
+use diesel::types::{FromSql, ToSql};
 use serde::Deserialize;
 use serde_json::Value;
 use std::fmt::{self, Display, Formatter};
 use std::future::Future;
+use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 use uuid::Uuid;
 
-/// Supported types for task's input data.
-/// Should match with InputData.
-#[derive(Debug, Clone, Deserialize, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum InputType {
-    String,
-    Json,
-}
+use super::direction::Direction;
+use super::intype::InputType;
+use super::timestamp::TimestampPosition;
 
 /// Enum for user's input data.
 #[derive(Debug, Clone, Deserialize)]
@@ -34,59 +36,31 @@ type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
 
 pub type BoxFnThatReturnsAFuture = BoxFn<BoxFuture<GetDataResult>>;
 
-//pub type GetDataFn =
-// Box<dyn Fn() -> (dyn Future<Output = Result<InputData, &'static str>> + Send + Sync)>;
-
-// Direction indicates direction of written data.
-#[derive(Clone, Debug, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Direction {
-    Vertical,   // data will be written in columns.
-    Horizontal, // data will be written in rows.
-}
-
-impl Display for Direction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let v = match self {
-            Direction::Vertical => "vertical",
-            Direction::Horizontal => "horizontal",
-        };
-        write!(f, "{:?}", v)
-    }
-}
-
-// TimestampPosition indicates position of timestamp in the data.
-#[derive(Clone, Debug, Copy, PartialEq)]
-pub enum TimestampPosition {
-    None, // timestamp will not be written.
-    Before,
-    After,
-}
-
 // CallbackFn is a type wrap for callback function.
 type CallbackFn = fn(Result<(), &'static str>) -> ();
 
-#[derive(Clone)]
+#[derive(Derivative, Clone)]
+#[derivative(Debug, PartialEq)]
 // TrackingTask holds information about tracking task.
 pub struct TrackingTask {
-    pub id: Uuid,                              // task id.
-    pub name: Option<String>,                  // task name.
-    pub description: Option<String>,           // task description.
-    pub data_fn: Arc<BoxFnThatReturnsAFuture>, // function that returns data to be written.
-    pub spreadsheet_id: String,                // spreadsheet where data will be written.
-    pub starting_position: String, // starting position of data in the spreadsheet. A1 notation.
-    pub sheet: String,             // exact sheet of spreadsheet. Default is empty, first sheet.
+    pub id: Uuid,                    // task id.
+    pub name: Option<String>,        // task name.
+    pub description: Option<String>, // task description.
+    pub spreadsheet_id: String,      // spreadsheet where data will be written.
+    pub starting_position: String,   // starting position of data in the spreadsheet. A1 notation.
+    pub sheet: String,               // exact sheet of spreadsheet. Default is empty, first sheet.
     pub direction: Direction,
     pub interval: Duration,   // interval between data writes.
     pub with_timestamp: bool, // whether to write timestamp.
     pub timestamp_position: TimestampPosition,
     pub invocations: Option<i32>, // number of invocations.
-
-    pub eval_forest: EvalForest, // definition of handling data.
-
+    pub eval_forest: EvalForest,  // definition of handling data.
     pub url: String,
     pub input_type: InputType,
 
+    #[derivative(Debug = "ignore")]
+    #[derivative(PartialEq = "ignore")]
+    pub data_fn: Arc<BoxFnThatReturnsAFuture>, // function that returns data to be written.
     pub callbacks: Option<Vec<CallbackFn>>,
 }
 
@@ -125,6 +99,29 @@ impl TrackingTask {
             input_type,
             url,
         }
+    }
+
+    pub fn from_task_model(tm: &TaskModel) -> Result<Self, &'static str> {
+        let id = Uuid::parse_str(&tm.uuid).map_err(|err| "invalid uuid")?;
+
+        Ok(TrackingTask {
+            id,
+            name: Some(tm.name.clone()),
+            description: Some(tm.description.clone()),
+            data_fn: Arc::new(getter_from_url(&tm.url, InputType::Json)),
+            spreadsheet_id: tm.spreadsheet_id.clone(),
+            starting_position: tm.position.clone(),
+            sheet: tm.sheet.clone(),
+            direction: tm.direction,
+            interval: Duration::from_secs(tm.interval_secs.try_into().unwrap()),
+            with_timestamp: true,
+            timestamp_position: tm.timestamp_position,
+            invocations: None,
+            eval_forest: EvalForest::default(),
+            url: tm.url.clone(),
+            input_type: tm.input_type,
+            callbacks: None,
+        })
     }
 
     // sets task name.

@@ -1,5 +1,7 @@
+use super::direction::Direction;
+use super::intype::InputType;
 use super::manager::Command;
-use super::task::{Direction, InputData, TrackingTask};
+use super::task::{InputData, TrackingTask};
 use crate::lang::engine::Engine;
 use crate::lang::lexer::{EvalError, EvalForest};
 use crate::lang::variable::Variable;

@@ -14,6 +14,12 @@ pub mod wrap;
 #[macro_use]
 extern crate diesel;
 
+#[macro_use]
+extern crate derivative;
+
+#[macro_use]
+extern crate diesel_migrations;
+
 extern crate google_sheets4 as sheets4;
 extern crate hyper;
 extern crate hyper_rustls;

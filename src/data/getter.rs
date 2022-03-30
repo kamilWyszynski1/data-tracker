@@ -1,4 +1,5 @@
-use crate::core::task::{BoxFnThatReturnsAFuture, InputData, InputType};
+use crate::core::intype::InputType;
+use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
 
 pub fn getter_from_url(url: &str, it: InputType) -> BoxFnThatReturnsAFuture {
     let u = url.to_string();

@@ -1,4 +1,8 @@
+use super::direction::Direction;
+use super::intype::InputType;
+use super::timestamp::TimestampPosition;
 use crate::data::getter::getter_from_url;
+use crate::error::types::{Error, Result};
 use crate::lang::lexer::EvalForest;
 use crate::models::task::TaskModel;
 use crate::web::task::TaskCreateRequest;
@@ -11,10 +15,6 @@ use std::time::Duration;
 use std::vec::Vec;
 use uuid::Uuid;
 
-use super::direction::Direction;
-use super::intype::InputType;
-use super::timestamp::TimestampPosition;
-
 /// Enum for user's input data.
 #[derive(Debug, Clone, Deserialize)]
 pub enum InputData {
@@ -23,14 +23,14 @@ pub enum InputData {
 }
 
 // type aliases added, because this is a chonker of a type
-type GetDataResult = Result<InputData, &'static str>;
+type GetDataResult = Result<InputData>;
 type BoxFn<T> = Box<dyn Fn() -> T + Send + Sync>;
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
 
 pub type BoxFnThatReturnsAFuture = BoxFn<BoxFuture<GetDataResult>>;
 
 // CallbackFn is a type wrap for callback function.
-type CallbackFn = fn(Result<(), &'static str>) -> ();
+type CallbackFn = fn(Result<()>) -> ();
 
 #[derive(Derivative, Clone)]
 #[derivative(Debug, PartialEq)]
@@ -94,8 +94,14 @@ impl TrackingTask {
         }
     }
 
-    pub fn from_task_model(tm: &TaskModel) -> Result<Self, &'static str> {
-        let id = Uuid::parse_str(&tm.uuid).map_err(|err| "invalid uuid")?;
+    pub fn from_task_model(tm: &TaskModel) -> Result<Self> {
+        let id = Uuid::parse_str(&tm.uuid).map_err(|err| {
+            Error::new_internal(
+                String::from("from_task_model"),
+                String::from("failed to parse uuid"),
+                err.to_string(),
+            )
+        })?;
 
         Ok(TrackingTask {
             id,
@@ -106,11 +112,11 @@ impl TrackingTask {
             starting_position: tm.position.clone(),
             sheet: tm.sheet.clone(),
             direction: tm.direction,
-            interval: Duration::from_secs(tm.interval_secs.try_into().unwrap()),
+            interval: Duration::from_secs(tm.interval_secs as u64),
             with_timestamp: true,
             timestamp_position: tm.timestamp_position,
             invocations: None,
-            eval_forest: EvalForest::from_string(&tm.eval_forest).unwrap(),
+            eval_forest: EvalForest::from_string(&tm.eval_forest)?,
             url: tm.url.clone(),
             input_type: tm.input_type,
             callbacks: None,
@@ -160,16 +166,16 @@ impl TrackingTask {
     }
 
     // runs task callbacks on result.
-    pub fn run_callbacks(&self, result: Result<(), &'static str>) {
+    pub fn run_callbacks(&self, result: Result<()>) {
         info!("running callbacks: {:?}", self.callbacks);
         if let Some(callbacks) = &self.callbacks {
             for callback in callbacks {
-                callback(result);
+                callback(result.clone());
             }
         }
     }
 
-    pub async fn data(&self) -> Result<InputData, &'static str> {
+    pub async fn data(&self) -> Result<InputData> {
         (self.data_fn)().await
     }
 
@@ -226,7 +232,7 @@ impl TrackingTask {
         }
     }
 
-    pub fn from_task_create_request(tcr: TaskCreateRequest) -> Result<Self, &'static str> {
+    pub fn from_task_create_request(tcr: TaskCreateRequest) -> Result<Self> {
         let interval = Duration::new(tcr.interval_secs, 0);
 
         Ok(TrackingTask {
@@ -253,9 +259,10 @@ impl TrackingTask {
 mod test {
     #[allow(unused_imports)]
     use crate::core::task::{Direction, InputData, InputType, TrackingTask};
+    use crate::error::types::Result;
 
     #[allow(dead_code)]
-    async fn test_get_data_fn() -> Result<InputData, &'static str> {
+    async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
     }
     #[test]
@@ -270,7 +277,7 @@ mod test {
             InputType::String,
             String::from(""),
         );
-        tt = tt.with_callback(|res: Result<(), &'static str>| {
+        tt = tt.with_callback(|res: Result<()>| {
             assert!(res.is_ok());
         });
         assert!(tt.callbacks.is_some());

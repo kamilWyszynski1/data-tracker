@@ -27,7 +27,7 @@ impl TaskModel {
     pub fn from_tracking_task(tt: &TrackingTask) -> Self {
         TaskModel {
             uuid: tt.id.to_string(),
-            name: tt.name.as_ref().map(|s| s.clone()).unwrap_or_default(),
+            name: tt.name.as_ref().cloned().unwrap_or_default(),
             spreadsheet_id: tt.spreadsheet_id.clone(),
             sheet: tt.sheet.clone(),
             position: tt.starting_position.clone(),
@@ -35,11 +35,7 @@ impl TaskModel {
             interval_secs: tt.interval.as_secs() as i32,
             input_type: tt.input_type,
             url: tt.url.clone(),
-            description: tt
-                .description
-                .as_ref()
-                .map(|s| s.clone())
-                .unwrap_or_default(),
+            description: tt.description.as_ref().cloned().unwrap_or_default(),
             status: String::from("OK"),
             with_timestamp: tt.with_timestamp,
             timestamp_position: tt.timestamp_position,

@@ -3,7 +3,7 @@ use super::{
     variable::Variable,
 };
 use crate::lang::variable::value_object_to_variable_object;
-use crate::{core::task::InputData, error::error::Error};
+use crate::{core::task::InputData, error::types::Error};
 use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,9 +48,8 @@ impl EvalForest {
 
     /// Serializes whole tree to json string.
     pub fn to_string(&self) -> EvalResult<String> {
-        let a = serde_json::to_string(self)
-            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()));
-        a
+        serde_json::to_string(self)
+            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
     }
 
     /// Loads tree from json string.
@@ -334,7 +333,7 @@ fn extract(nodes: &[Variable]) -> EvalResult<Variable> {
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
     v1.extract(v2)
-        .map_err(|err| Error::new_eval_internal(String::from("extract"), err.to_string()))
+        .map_err(|err| Error::new_eval_internal(String::from("extract"), err))
 }
 
 // Defines new variable and writes it to a state.
@@ -362,10 +361,9 @@ fn get(nodes: &[Variable], state: &Engine) -> EvalResult<Variable> {
     let v = parse_single_param::<String>(nodes)
         .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
 
-    let g = state.get(v).ok_or(Error::new_eval_internal(
-        String::from("get"),
-        String::from("variable not found"),
-    ))?;
+    let g = state.get(v).ok_or_else(|| {
+        Error::new_eval_internal(String::from("get"), String::from("variable not found"))
+    })?;
     Ok(g.clone())
 }
 
@@ -412,10 +410,12 @@ where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
-    let param = nodes.first().ok_or(Error::new_eval_internal(
-        "parse_single_param".to_string(),
-        "There's not variable".to_string(),
-    ))?;
+    let param = nodes.first().ok_or_else(|| {
+        Error::new_eval_internal(
+            "parse_single_param".to_string(),
+            "There's not variable".to_string(),
+        )
+    })?;
     parse_type(param)
 }
 
@@ -442,10 +442,12 @@ pub fn evaluate_data(data: InputData, ef: &EvalForest) -> EvalResult<Variable> {
     let mut e = Engine::new(Variable::from_input_data(&data));
     e.fire(ef)?;
     Ok(e.get(String::from("OUT"))
-        .ok_or(Error::new_eval_internal(
-            String::from("evaluate_data"),
-            String::from("There is not OUT variable!!!"),
-        ))?
+        .ok_or_else(|| {
+            Error::new_eval_internal(
+                String::from("evaluate_data"),
+                String::from("There is not OUT variable!!!"),
+            )
+        })?
         .clone())
 }
 

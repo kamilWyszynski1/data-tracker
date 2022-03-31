@@ -99,10 +99,11 @@ where
 mod tests {
     use crate::core::task::*;
     use crate::core::tracker::Tracker;
+    use crate::error::types::{Error, Result};
     use crate::wrap::API;
     use async_trait::async_trait; // crate for async traits.
 
-    async fn test_get_data_fn() -> Result<InputData, &'static str> {
+    async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
     }
 
@@ -115,10 +116,14 @@ mod tests {
 
     #[async_trait]
     impl API for TestAPI {
-        async fn write(&self, v: Vec<Vec<String>>, s: &str, r: &str) -> Result<(), &'static str> {
+        async fn write(&self, v: Vec<Vec<String>>, s: &str, r: &str) -> Result<()> {
             (self.check)(v, s, r);
             if self.fail {
-                return Err(self.fail_msg);
+                return Err(Error::new_internal(
+                    String::from("write"),
+                    String::from("mock error"),
+                    self.fail_msg.to_string(),
+                ));
             }
             Ok(())
         }
@@ -128,7 +133,7 @@ mod tests {
 
     #[async_trait]
     impl API for MockAPI {
-        async fn write(&self, _: Vec<Vec<String>>, _: &str, _: &str) -> Result<(), &'static str> {
+        async fn write(&self, _: Vec<Vec<String>>, _: &str, _: &str) -> Result<()> {
             Ok(())
         }
     }
@@ -143,6 +148,7 @@ mod tests {
     #[tokio::test]
     #[timeout(10000)]
     async fn test_send_receive() {
+        use mockall::{automock, mock, predicate::*};
         use tokio::sync::oneshot;
         let (tx, rx) = oneshot::channel::<bool>();
 
@@ -161,9 +167,9 @@ mod tests {
             panic!("failed")
         }
 
-        fn callback(_: Result<(), &'static str>) {}
+        fn callback(_: Result<()>) {}
 
-        let c = |tx: oneshot::Sender<bool>| -> fn(Result<(), &'static str>) {
+        let c = |tx: oneshot::Sender<bool>| -> fn(Result<()>) {
             info!("callback");
             tx.send(true).unwrap();
             callback
@@ -175,7 +181,43 @@ mod tests {
 
         let fail_msg = "";
 
-        let mock_persistence = MockPersistance::new();
+        let t1 = TrackingTask::new(
+            "spreadsheet4".to_string(),
+            "".to_string(),
+            "A4".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_secs(1),
+            InputType::String,
+            String::from(""),
+        )
+        .with_name("TEST4".to_string())
+        .with_invocations(1);
+        let t2 = TrackingTask::new(
+            "spreadsheet5".to_string(),
+            "".to_string(),
+            "A5".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_secs(1),
+            InputType::String,
+            String::from(""),
+        )
+        .with_name("TEST5".to_string())
+        .with_callback(c(tx))
+        .with_invocations(1);
+
+        let mut mock_persistence = MockPersistance::new();
+        mock_persistence
+            .expect_save_task()
+            .with(eq(t1.clone()))
+            .once()
+            .returning(|_| Ok(()));
+        mock_persistence
+            .expect_save_task()
+            .with(eq(t2.clone()))
+            .once()
+            .returning(|_| Ok(()));
 
         let mut t = Tracker::new(
             TestAPI {
@@ -193,41 +235,8 @@ mod tests {
             t.start().await;
         });
         info!("started");
-        assert!(send
-            .send(
-                TrackingTask::new(
-                    "spreadsheet4".to_string(),
-                    "".to_string(),
-                    "A4".to_string(),
-                    Direction::Vertical,
-                    Box::new(move || Box::pin(test_get_data_fn())),
-                    std::time::Duration::from_secs(1),
-                    InputType::String,
-                    String::from("")
-                )
-                .with_name("TEST4".to_string())
-                .with_invocations(1),
-            )
-            .await
-            .is_ok());
-        assert!(send
-            .send(
-                TrackingTask::new(
-                    "spreadsheet5".to_string(),
-                    "".to_string(),
-                    "A5".to_string(),
-                    Direction::Vertical,
-                    Box::new(move || Box::pin(test_get_data_fn())),
-                    std::time::Duration::from_secs(1),
-                    InputType::String,
-                    String::from("")
-                )
-                .with_name("TEST5".to_string())
-                .with_callback(c(tx))
-                .with_invocations(1),
-            )
-            .await
-            .is_ok());
+        assert!(send.send(t1).await.is_ok());
+        assert!(send.send(t2).await.is_ok());
         rx.await.unwrap();
     }
 }

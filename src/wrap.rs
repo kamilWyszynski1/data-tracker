@@ -1,3 +1,5 @@
+use crate::error::types::Error as IError;
+use crate::error::types::Result;
 use async_trait::async_trait; // crate for async traits.
 use hyper::{body, Body, Response};
 use sheets4::api::ValueRange;
@@ -6,12 +8,7 @@ use sheets4::{Error, Sheets};
 #[async_trait]
 // API is a wrapper for the Google Sheets API.
 pub trait API {
-    async fn write(
-        &self,
-        values: Vec<Vec<String>>,
-        sheet_id: &str,
-        range: &str,
-    ) -> Result<(), &'static str>;
+    async fn write(&self, values: Vec<Vec<String>>, sheet_id: &str, range: &str) -> Result<()>;
 }
 
 #[derive(Clone)]
@@ -23,12 +20,7 @@ pub struct APIWrapper {
 #[async_trait]
 impl API for APIWrapper {
     // writes data to a sheet.
-    async fn write(
-        &self,
-        values: Vec<Vec<String>>,
-        sheet_id: &str,
-        range: &str,
-    ) -> Result<(), &'static str> {
+    async fn write(&self, values: Vec<Vec<String>>, sheet_id: &str, range: &str) -> Result<()> {
         let req = ValueRange {
             values: Some(values),
             ..Default::default()
@@ -47,7 +39,11 @@ impl API for APIWrapper {
 
         return match result {
             Err(e) => match e {
-                Error::Failure(_res) => Err("failure"),
+                Error::Failure(res) => Err(IError::new_internal(
+                    String::from("write"),
+                    String::from("failed to get cells"),
+                    read_response_body(res).await?,
+                )),
                 // The Error enum provides details about what exactly> happened.
                 // You can also just use its `Debug`, `Display` or `Error` traits
                 Error::HttpError(_)
@@ -58,7 +54,11 @@ impl API for APIWrapper {
                 | Error::UploadSizeLimitExceeded(_, _)
                 | Error::BadRequest(_)
                 | Error::FieldClash(_)
-                | Error::JsonDecodeError(_, _) => Err("error"),
+                | Error::JsonDecodeError(_, _) => Err(IError::new_internal(
+                    String::from("write"),
+                    String::from("internal spreadsheet error"),
+                    e.to_string(),
+                )),
             },
             Ok(_) => Ok(()),
         };
@@ -100,7 +100,7 @@ impl APIWrapper {
     }
 
     // get returns cell value from a sheet.
-    pub async fn get(&self, sheet_id: &str, range: &str) -> Result<Vec<String>, String> {
+    pub async fn get(&self, sheet_id: &str, range: &str) -> Result<Vec<String>> {
         let result = self
             .client
             .spreadsheets()
@@ -110,7 +110,11 @@ impl APIWrapper {
 
         return match result {
             Err(e) => match e {
-                Error::Failure(res) => Err(read_response_body(res).await.unwrap()),
+                Error::Failure(res) => Err(IError::new_internal(
+                    String::from("get"),
+                    String::from("failed to get cells"),
+                    read_response_body(res).await?,
+                )),
                 // The Error enum provides details about what exactly> happened.
                 // You can also just use its `Debug`, `Display` or `Error` traits
                 Error::HttpError(_)
@@ -121,7 +125,11 @@ impl APIWrapper {
                 | Error::UploadSizeLimitExceeded(_, _)
                 | Error::BadRequest(_)
                 | Error::FieldClash(_)
-                | Error::JsonDecodeError(_, _) => Err(format!("{:?}", e)),
+                | Error::JsonDecodeError(_, _) => Err(IError::new_internal(
+                    String::from("get"),
+                    String::from("internal spreadsheet error"),
+                    e.to_string(),
+                )),
             },
             // we need to unwrap this 2d array properly here.
             Ok(vr) => Ok(vr
@@ -136,7 +144,19 @@ impl APIWrapper {
 }
 
 // read_response_body
-async fn read_response_body(res: Response<Body>) -> Result<String, hyper::Error> {
-    let bytes = body::to_bytes(res.into_body()).await?;
-    Ok(String::from_utf8(bytes.to_vec()).expect("response was not valid utf-8"))
+async fn read_response_body(res: Response<Body>) -> Result<String> {
+    let bytes = body::to_bytes(res.into_body()).await.map_err(|err| {
+        IError::new_internal(
+            String::from("read_response_body"),
+            String::from("failed to convert body to bytes"),
+            err.to_string(),
+        )
+    })?;
+    String::from_utf8(bytes.to_vec()).map_err(|err| {
+        IError::new_internal(
+            String::from("read_response_body"),
+            String::from("failed to convert body to String"),
+            err.to_string(),
+        )
+    })
 }

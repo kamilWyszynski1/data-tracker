@@ -1,8 +1,8 @@
 use super::direction::Direction;
 use super::manager::Command;
-use super::task::{InputData, TrackingTask};
-use crate::lang::engine::Engine;
-use crate::lang::lexer::{evaluate_data, EvalForest};
+use super::task::TrackingTask;
+use crate::error::types::Error;
+use crate::lang::lexer::evaluate_data;
 use crate::lang::variable::Variable;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
@@ -184,9 +184,13 @@ where
                     self.task.run_callbacks(result);
                 }
             }
-            Err(e) => {
-                error!("{:?}", e);
-                self.task.run_callbacks(Err("failed to evaluate"));
+            Err(err) => {
+                error!("{:?}", err);
+                self.task.run_callbacks(Err(Error::new_internal(
+                    String::from("get"),
+                    String::from("failed to evaluate"),
+                    err.to_string(),
+                )));
             }
         }
     }

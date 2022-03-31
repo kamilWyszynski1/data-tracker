@@ -1,14 +1,15 @@
+use super::interface::PResult;
 use super::interface::Persistance;
 use crate::core::task::TrackingTask;
 use crate::diesel::OptionalExtension;
 use crate::diesel::RunQueryDsl;
+use crate::error::types::Error;
 use crate::models::location::Location;
 use crate::models::task::TaskModel;
 use crate::schema::*;
 use diesel::{insert_into, ExpressionMethods, QueryDsl};
 use diesel::{Connection, SqliteConnection};
 use std::env;
-use std::result::Result;
 use uuid::Uuid;
 
 pub fn establish_connection() -> SqliteConnection {
@@ -30,47 +31,78 @@ impl SqliteClient {
 }
 
 impl Persistance for SqliteClient {
-    fn save_location(&mut self, key: Uuid, value: u32) -> Result<(), &'static str> {
+    fn save_location(&mut self, key: Uuid, value: u32) -> PResult<()> {
         let l = Location {
             key: key.to_string(),
-            value: value.try_into().unwrap(),
+            value: value as i32,
         };
         insert_into(location::table)
             .values(&l)
             .execute(&self.conn)
-            .expect("Error saving location");
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("failed to execute save_location query"),
+                    err.to_string(),
+                )
+            })?;
         Ok(())
     }
 
-    fn read_location(&self, k: &Uuid) -> Option<u32> {
+    fn read_location(&self, k: &Uuid) -> PResult<u32> {
         use crate::schema::location::dsl::*;
 
-        location
+        Ok(location
             .filter(key.eq(k.to_string()))
-            .first(&self.conn)
+            .first::<Location>(&self.conn)
             .optional()
-            .ok()?
-            .map(|l: Location| l.value as u32)
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("failed to execute save_location query"),
+                    err.to_string(),
+                )
+            })?
+            .ok_or_else(|| {
+                Error::new_persistance_internal(
+                    String::from("empty Option from query read_location"),
+                    "".to_string(),
+                )
+            })?
+            .value as u32)
     }
 
-    fn save_task(&mut self, t: &TrackingTask) -> Result<(), String> {
+    fn save_task(&mut self, t: &TrackingTask) -> PResult<()> {
         let tm = TaskModel::from_tracking_task(t);
         insert_into(tasks::table)
             .values(&tm)
             .execute(&self.conn)
-            .expect("Error saving task");
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("failed to execute save_location query"),
+                    err.to_string(),
+                )
+            })?;
         Ok(())
     }
 
-    fn read_task(&mut self, id: Uuid) -> Result<TrackingTask, String> {
+    fn read_task(&mut self, id: Uuid) -> PResult<TrackingTask> {
         use crate::schema::tasks::dsl::*;
 
         let t: TaskModel = tasks
             .filter(uuid.eq(id.to_string()))
-            .first(&self.conn)
+            .first::<TaskModel>(&self.conn)
             .optional()
-            .unwrap()
-            .unwrap();
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("failed to execute save_location query"),
+                    err.to_string(),
+                )
+            })?
+            .ok_or_else(|| {
+                Error::new_persistance_internal(
+                    String::from("empty Option from query read_location"),
+                    "".to_string(),
+                )
+            })?;
         Ok(TrackingTask::from_task_model(&t).unwrap())
     }
 }
@@ -81,6 +113,7 @@ mod tests {
     use crate::core::intype::InputType;
     use crate::core::task::{InputData, TrackingTask};
     use crate::core::timestamp::TimestampPosition;
+    use crate::error::types::Result;
     use crate::lang::engine::Definition;
     use crate::lang::lexer::EvalForest;
     use crate::persistance::interface::Persistance;
@@ -95,7 +128,7 @@ mod tests {
 
     embed_migrations!("migrations");
 
-    async fn test_get_data_fn() -> Result<InputData, &'static str> {
+    async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
     }
 

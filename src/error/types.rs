@@ -1,5 +1,10 @@
 use std::error::Error as StdError;
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::Result as FmtResult;
+use std::fmt::{Display, Formatter};
+use std::result::Result as StdResult;
+
+/// Wrapper for Result from standard library to be used across application.
+pub type Result<T> = StdResult<T, Error>;
 
 #[derive(Debug, Clone)]
 pub enum EvalError {
@@ -15,7 +20,7 @@ pub enum EvalError {
 }
 
 impl Display for EvalError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{:?}", *self)
     }
 }
@@ -46,8 +51,18 @@ pub enum PersistanceError {
     },
 }
 
+impl PersistanceError {
+    pub fn new_internal(msg: String, err: String) -> Self {
+        Self::Internal { msg, err }
+    }
+
+    pub fn new_parsing(msg: String, err: String, field: String) -> Self {
+        Self::Parsing { msg, err, field }
+    }
+}
+
 impl Display for PersistanceError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{:?}", *self)
     }
 }
@@ -57,9 +72,17 @@ impl Display for PersistanceError {
 pub enum Error {
     Eval(EvalError),
     Persistance(PersistanceError),
+    Internal {
+        place: String, // where error occurred
+        msg: String,
+        err: String,
+    },
 }
 
 impl Error {
+    pub fn new_internal(place: String, msg: String, err: String) -> Self {
+        Self::Internal { place, msg, err }
+    }
     pub fn new_eval(err: EvalError) -> Self {
         Self::Eval(err)
     }
@@ -75,10 +98,17 @@ impl Error {
     pub fn new_eval_internal(operation: String, msg: String) -> Self {
         Self::new_eval(EvalError::new_internal(operation, msg))
     }
+
+    pub fn new_persistance_internal(msg: String, err: String) -> Self {
+        Self::new_persistance(PersistanceError::new_internal(msg, err))
+    }
+    pub fn new_persistance_parsing(msg: String, err: String, field: String) -> Self {
+        Self::new_persistance(PersistanceError::new_parsing(msg, err, field))
+    }
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{:?}", *self)
     }
 }

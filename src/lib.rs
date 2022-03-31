@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_macros)]
 #![feature(type_alias_impl_trait)]
 
 pub mod core;

@@ -57,7 +57,7 @@ pub async fn create(
 
     match tt {
         Ok(tt) => {
-            let id = tt.id();
+            let id = tt.id;
             match sender.send(tt).await {
                 Ok(_) => TaskCreateResponse::new(json!({ "id": id }), Status::Ok),
                 Err(e) => {

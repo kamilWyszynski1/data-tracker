@@ -46,7 +46,7 @@ impl Persistance for InMemoryPersistance {
     }
 
     fn save_task(&mut self, task: &TrackingTask) -> PResult<()> {
-        self.tasks.insert(task.id(), task.clone());
+        self.tasks.insert(task.id, task.clone());
         Ok(())
     }
 

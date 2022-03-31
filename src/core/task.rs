@@ -180,50 +180,6 @@ impl TrackingTask {
         (self.data_fn)().await
     }
 
-    pub fn name(&self) -> &str {
-        if let Some(name) = &self.name {
-            name
-        } else {
-            ""
-        }
-    }
-
-    pub fn description(&self) -> &str {
-        if let Some(name) = &self.description {
-            name
-        } else {
-            ""
-        }
-    }
-
-    pub fn interval(&self) -> Duration {
-        self.interval
-    }
-
-    pub fn invocations(&self) -> Option<i32> {
-        self.invocations
-    }
-
-    pub fn id(&self) -> Uuid {
-        self.id
-    }
-
-    pub fn direction(&self) -> Direction {
-        self.direction
-    }
-
-    pub fn spreadsheet_id(&self) -> String {
-        self.spreadsheet_id.clone()
-    }
-
-    pub fn sheet(&self) -> String {
-        self.sheet.clone()
-    }
-
-    pub fn starting_position(&self) -> String {
-        self.starting_position.clone()
-    }
-
     /// returns String that can be put into logs.
     pub fn info(&self) -> String {
         if let Some(name) = &self.name {
@@ -298,8 +254,7 @@ mod test {
             String::from(""),
         );
         tt = tt.with_name("test".to_string());
-        assert!(tt.name() != "");
-        assert_eq!(tt.name(), "test")
+        assert_eq!(tt.name.unwrap_or_default().as_str(), "test")
     }
 
     #[test]
@@ -315,6 +270,6 @@ mod test {
             String::from(""),
         );
         tt = tt.with_description("test".to_string());
-        assert_eq!(tt.description(), "test")
+        assert_eq!(tt.description.unwrap_or_default().as_str(), "test")
     }
 }

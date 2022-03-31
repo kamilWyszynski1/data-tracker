@@ -92,7 +92,7 @@ where
             // lock dropped here.
         }
         let mut counter = 0; // invocations counter. Will not be used if invocations is None.
-        let mut timer = tokio::time::interval(self.task.interval());
+        let mut timer = tokio::time::interval(self.task.interval);
         info!("handler starting with: {} task", self.task.info());
         while !self.shutdown.is_shutdown() {
             tokio::select! {
@@ -120,7 +120,7 @@ where
                     match *state{
                         State::Running => {
                             self.handle().await;
-                            if let Some(invocations) = self.task.invocations() {
+                            if let Some(invocations) = self.task.invocations {
                                 counter += 1;
                                 if counter >= invocations {
                                     break;
@@ -155,9 +155,9 @@ where
             Ok(data) => {
                 info!("evaluated from engine: {:?}", &data);
 
-                let data = create_write_vec(self.task.direction(), data);
+                let data = create_write_vec(self.task.direction, data);
 
-                let last_place = self.db.get(&self.task.id()).await.unwrap_or(0);
+                let last_place = self.db.get(&self.task.id).await.unwrap_or(0);
                 let data_len = data.len() as u32;
                 info!("last_place: {}, data_len: {}", last_place, data_len);
 
@@ -165,18 +165,18 @@ where
                     .api
                     .write(
                         data,
-                        &self.task.spreadsheet_id(),
+                        &self.task.spreadsheet_id,
                         &create_range(
                             last_place, // TODO: calculations are not working properly.
-                            &self.task.starting_position(),
-                            &self.task.sheet(),
-                            self.task.direction(),
+                            &self.task.starting_position,
+                            &self.task.sheet,
+                            self.task.direction,
                             data_len,
                         ),
                     )
                     .await;
                 info!("saving to db");
-                if let Err(err) = self.db.save(self.task.id(), data_len + last_place).await {
+                if let Err(err) = self.db.save(self.task.id, data_len + last_place).await {
                     info!("save failed");
                     self.task.run_callbacks(Err(err));
                 } else {

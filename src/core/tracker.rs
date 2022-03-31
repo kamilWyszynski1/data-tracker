@@ -79,7 +79,7 @@ where
                         error!("{}", e);
                         continue; // do not handle task if save to db failed.
                     };
-                    let receiver = self.manager.add_new_mapping(task.id());
+                    let receiver = self.manager.add_new_mapping(task.id);
                     let mut handler = TaskHandler::new(task, self.db.clone(), Shutdown::new(self.notify_shutdown.subscribe()), self.api.clone(), receiver);
                     spawned.push(tokio::task::spawn(async move {handler.start().await}));
                 }

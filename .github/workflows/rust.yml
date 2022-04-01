@@ -22,12 +22,12 @@ jobs:
           toolchain: nightly
           override: true
 
+      - uses: Swatinem/rust-cache@v1
+
       - run: |
           cargo -V
           rustup override set nightly
           cargo +nightly c
-
-      - uses: Swatinem/rust-cache@v1
 
   clippy:
     name: Clippy
@@ -44,13 +44,13 @@ jobs:
           override: true
           components: clippy
 
+      - uses: Swatinem/rust-cache@v1
+
       - name: Run cargo clippy
         uses: actions-rs/cargo@v1
         with:
           command: clippy
           args: -- -D warnings
-
-      - uses: Swatinem/rust-cache@v1
 
   test:
     name: Test Suite
@@ -65,9 +65,9 @@ jobs:
           toolchain: nightly
           override: true
 
+      - uses: Swatinem/rust-cache@v1
+
       - run: |
           cargo -V
           rustup override set nightly
           cargo +nightly t
-
-      - uses: Swatinem/rust-cache@v1

@@ -58,6 +58,7 @@ pub struct TrackingTask {
 }
 
 impl TrackingTask {
+    #[allow(clippy::too_many_arguments)]
     // creates new TrackingTask.
     pub fn new(
         spreadsheet_id: String,

@@ -19,13 +19,14 @@ extern crate diesel;
 #[macro_use]
 extern crate derivative;
 
+#[allow(unused_imports)]
 #[macro_use]
 extern crate diesel_migrations;
 
 extern crate google_sheets4 as sheets4;
 extern crate hyper;
 extern crate hyper_rustls;
-extern crate yup_oauth2 as oauth2;
+extern crate yup_oauth2;
 #[allow(unused_imports)]
 #[macro_use]
 extern crate ntest;

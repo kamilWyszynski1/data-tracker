@@ -148,7 +148,7 @@ mod tests {
     #[tokio::test]
     #[timeout(10000)]
     async fn test_send_receive() {
-        use mockall::{automock, mock, predicate::*};
+        use mockall::predicate::*;
         use tokio::sync::oneshot;
         let (tx, rx) = oneshot::channel::<bool>();
 

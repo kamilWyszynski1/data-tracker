@@ -1,6 +1,7 @@
 use super::handler::TaskHandler;
 use super::manager::{SenderManager, TaskCommand};
 use super::task::TrackingTask;
+use crate::error::types::Result;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
@@ -8,6 +9,7 @@ use std::marker::{Send, Sync};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Receiver;
+use tokio::task::JoinHandle;
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
@@ -66,6 +68,7 @@ where
     pub async fn start(&mut self) {
         info!("Starting Tracker.");
         let mut spawned = vec![];
+
         while !self.shutdown.is_shutdown() {
             tokio::select! {
                 _ = self.shutdown.recv() => {
@@ -75,23 +78,40 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
-                    if let Err(e)  = self.db.save_task(&task).await {
-                        error!("{}", e);
-                        continue; // do not handle task if save to db failed.
-                    };
-                    let receiver = self.manager.add_new_mapping(task.id);
-                    let mut handler = TaskHandler::new(task, self.db.clone(), Shutdown::new(self.notify_shutdown.subscribe()), self.api.clone(), receiver);
-                    spawned.push(tokio::task::spawn(async move {handler.start().await}));
+                    if let Err(e) = self.receive_task(&task, &mut spawned).await {
+                        error!("{:?}", e);
+                    }
                 }
                 Some(task_cmd) = self.task_command_channel.recv() => {
                     self.manager.apply(task_cmd.id, task_cmd.cmd).await;
                 }
             }
         }
+
         for (i, s) in spawned.into_iter().enumerate() {
             info!("awaiting {} spawned", i);
             s.await.unwrap();
         }
+    }
+
+    /// Gets task, creates new TaskHandler and pushes it to spawned handlers.
+    /// TaskHandler will start its work waiting for shutdown message.
+    async fn receive_task(
+        &mut self,
+        task: &TrackingTask,
+        spawned: &mut Vec<JoinHandle<()>>,
+    ) -> Result<()> {
+        self.db.save_task(task).await?;
+
+        let mut handler = TaskHandler::new(
+            task.clone(),
+            self.db.clone(),
+            Shutdown::new(self.notify_shutdown.subscribe()),
+            self.api.clone(),
+            self.manager.add_new_mapping(task.id),
+        );
+        spawned.push(tokio::task::spawn(async move { handler.start().await }));
+        Ok(())
     }
 }
 
@@ -138,9 +158,8 @@ mod tests {
         }
     }
 
-    use crate::core::direction::Direction;
-    use crate::core::intype::InputType;
     use crate::core::tracker::TaskCommand;
+    use crate::core::types::*;
     use crate::persistance::interface::{Db, MockPersistance};
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;

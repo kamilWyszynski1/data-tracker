@@ -1,6 +1,4 @@
-use super::direction::Direction;
-use super::intype::InputType;
-use super::timestamp::TimestampPosition;
+use super::types::*;
 use crate::data::getter::getter_from_url;
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::EvalForest;
@@ -50,6 +48,7 @@ pub struct TrackingTask {
     pub eval_forest: EvalForest,  // definition of handling data.
     pub url: String,
     pub input_type: InputType,
+    pub status: State,
 
     #[derivative(Debug = "ignore")]
     #[derivative(PartialEq = "ignore")]
@@ -92,6 +91,7 @@ impl TrackingTask {
             eval_forest: EvalForest::default(),
             input_type,
             url,
+            status: State::Created,
         }
     }
 
@@ -120,6 +120,7 @@ impl TrackingTask {
             eval_forest: EvalForest::from_string(&tm.eval_forest)?,
             url: tm.url.clone(),
             input_type: tm.input_type,
+            status: tm.status,
             callbacks: None,
         })
     }
@@ -209,6 +210,7 @@ impl TrackingTask {
             data_fn: Arc::new(getter_from_url(&tcr.url, tcr.input_type)),
             input_type: tcr.input_type,
             url: tcr.url,
+            status: State::Created,
         })
     }
 }

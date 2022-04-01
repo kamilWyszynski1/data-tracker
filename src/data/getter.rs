@@ -1,5 +1,5 @@
-use crate::core::intype::InputType;
 use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
+use crate::core::types::InputType;
 use crate::error::types::{Error, Result};
 
 pub fn getter_from_url(url: &str, it: InputType) -> BoxFnThatReturnsAFuture {

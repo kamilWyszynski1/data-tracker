@@ -1,6 +1,4 @@
-use crate::core::direction::Direction;
-use crate::core::intype::InputType;
-use crate::core::timestamp::TimestampPosition;
+use crate::core::types::*;
 use crate::{core::task::TrackingTask, schema::tasks};
 use diesel::{Insertable, Queryable};
 
@@ -20,7 +18,7 @@ pub struct TaskModel {
     pub eval_forest: String, // definition of handling data.
     pub url: String,
     pub input_type: InputType,
-    pub status: String,
+    pub status: State,
 }
 
 impl TaskModel {
@@ -36,7 +34,7 @@ impl TaskModel {
             input_type: tt.input_type,
             url: tt.url.clone(),
             description: tt.description.as_ref().cloned().unwrap_or_default(),
-            status: String::from("OK"),
+            status: State::Created,
             with_timestamp: tt.with_timestamp,
             timestamp_position: tt.timestamp_position,
             eval_forest: tt.eval_forest.to_string().unwrap_or_default(),

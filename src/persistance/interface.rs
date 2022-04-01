@@ -1,4 +1,7 @@
-use crate::{core::task::TrackingTask, error::types::Error};
+use crate::{
+    core::{task::TrackingTask, types::State},
+    error::types::Error,
+};
 use mockall::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -13,6 +16,8 @@ pub trait Persistance {
     fn read_location(&self, key: &Uuid) -> PResult<u32>;
     fn save_task(&mut self, task: &TrackingTask) -> PResult<()>;
     fn read_task(&mut self, uuid: Uuid) -> PResult<TrackingTask>;
+    fn update_task_status(&mut self, uuid: Uuid, status: State) -> PResult<()>;
+    fn delete_task(&mut self, uuid: Uuid) -> PResult<()>;
 }
 
 #[derive(Clone)]
@@ -42,5 +47,12 @@ impl Db {
     }
     pub async fn read_task(&mut self, uuid: Uuid) -> PResult<TrackingTask> {
         self.shared.lock().await.read_task(uuid)
+    }
+    pub async fn update_task_status(&mut self, uuid: Uuid, status: State) -> PResult<()> {
+        self.shared.lock().await.update_task_status(uuid, status)
+    }
+
+    pub async fn delete_task(&mut self, uuid: Uuid) -> PResult<()> {
+        self.shared.lock().await.delete_task(uuid)
     }
 }

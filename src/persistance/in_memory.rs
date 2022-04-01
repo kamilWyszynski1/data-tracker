@@ -1,4 +1,7 @@
-use crate::{core::task::TrackingTask, error::types::Error};
+use crate::{
+    core::{task::TrackingTask, types::State},
+    error::types::Error,
+};
 
 use super::interface::{PResult, Persistance};
 use std::collections::HashMap;
@@ -60,5 +63,19 @@ impl Persistance for InMemoryPersistance {
                 )
             })
             .map(|x| x.clone())
+    }
+    fn update_task_status(&mut self, uuid: Uuid, status: State) -> PResult<()> {
+        self.tasks.entry(uuid).and_modify(|tt| tt.status = status);
+        Ok(())
+    }
+
+    fn delete_task(&mut self, uuid: Uuid) -> PResult<()> {
+        self.tasks.remove(&uuid).ok_or_else(|| {
+            Error::new_persistance_internal(
+                String::from("there's no task to delete"),
+                String::default(),
+            )
+        })?;
+        Ok(())
     }
 }

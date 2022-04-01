@@ -1,6 +1,7 @@
 use super::interface::PResult;
 use super::interface::Persistance;
 use crate::core::task::TrackingTask;
+use crate::core::types::State;
 use crate::diesel::OptionalExtension;
 use crate::diesel::RunQueryDsl;
 use crate::error::types::Error;
@@ -105,14 +106,38 @@ impl Persistance for SqliteClient {
             })?;
         Ok(TrackingTask::from_task_model(&t).unwrap())
     }
+
+    fn update_task_status(&mut self, id: Uuid, s: State) -> PResult<()> {
+        use crate::schema::tasks::dsl::*;
+
+        let target = tasks.filter(uuid.eq(id.to_string()));
+        diesel::update(target)
+            .set(status.eq(s))
+            .execute(&self.conn)
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("empty Option from query read_location"),
+                    err.to_string(),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn delete_task(&mut self, id: Uuid) -> PResult<()> {
+        use crate::schema::tasks::dsl::*;
+
+        let target = tasks.filter(uuid.eq(id.to_string()));
+        diesel::delete(target).execute(&self.conn).map_err(|err| {
+            Error::new_persistance_internal(String::from("could not delete task"), err.to_string())
+        })?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::core::direction::Direction;
-    use crate::core::intype::InputType;
     use crate::core::task::{InputData, TrackingTask};
-    use crate::core::timestamp::TimestampPosition;
+    use crate::core::types::*;
     use crate::error::types::Result;
     use crate::lang::engine::Definition;
     use crate::lang::lexer::EvalForest;
@@ -163,10 +188,11 @@ mod tests {
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
-            eval_forest: eval_forest,
+            eval_forest,
             url: String::from("url"),
             input_type: InputType::String,
             callbacks: None,
+            status: State::Created,
         };
 
         let mut client = SqliteClient::new(connection);
@@ -175,6 +201,12 @@ mod tests {
         let tt_db = client.read_task(id).unwrap();
         assert_eq!(tt, tt_db);
 
-        fs::remove_file(file_name).unwrap();
+        client.update_task_status(id, State::Quit).unwrap();
+
+        let tt_db = client.read_task(id).unwrap();
+        assert_eq!(tt_db.status, State::Quit);
+
+        client.delete_task(id).unwrap();
+        assert!(client.read_task(id).is_err());
     }
 }

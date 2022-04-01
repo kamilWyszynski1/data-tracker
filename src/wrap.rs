@@ -2,10 +2,12 @@ use crate::error::types::Error as IError;
 use crate::error::types::Result;
 use async_trait::async_trait; // crate for async traits.
 use hyper::{body, Body, Response};
+use mockall::*;
 use sheets4::api::ValueRange;
 use sheets4::{Error, Sheets};
 
 #[async_trait]
+#[automock]
 // API is a wrapper for the Google Sheets API.
 pub trait API {
     async fn write(&self, values: Vec<Vec<String>>, sheet_id: &str, range: &str) -> Result<()>;

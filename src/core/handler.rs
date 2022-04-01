@@ -1,7 +1,8 @@
-use super::direction::Direction;
 use super::manager::Command;
 use super::task::TrackingTask;
-use crate::error::types::Error;
+use super::types::Direction;
+use super::types::State;
+use crate::error::types::{Error, Result};
 use crate::lang::lexer::evaluate_data;
 use crate::lang::variable::Variable;
 use crate::persistance::interface::Db;
@@ -11,14 +12,6 @@ use log::info;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
-
-/// State is state of currently handled task.
-enum State {
-    Created,
-    Running,
-    Stopped,
-    Quit,
-}
 
 pub struct TaskHandler<A: API> {
     /// Task that is being handled by TaskHandler.
@@ -56,44 +49,31 @@ where
         }
     }
 
-    async fn apply(&mut self, cmd: Command) {
-        match cmd {
-            Command::Stop => self.stop().await,
-            Command::Delete => self.quit().await,
-            Command::Resume => self.resume().await,
-        }
+    async fn apply(&mut self, cmd: Command) -> Result<()> {
+        self.change_status(State::from_cmd(cmd)).await
     }
 
-    /// Quits running task.
-    async fn quit(&mut self) {
+    async fn change_status(&mut self, status: State) -> Result<()> {
         let mut state = self.state.lock().await;
-        *state = State::Quit;
-    }
+        *state = status;
 
-    /// Stops running task.
-    async fn stop(&mut self) {
-        let mut state = self.state.lock().await;
-        *state = State::Stopped;
-    }
-
-    /// Stars stopped task.
-    async fn resume(&mut self) {
-        let mut state = self.state.lock().await;
-        *state = State::Running;
+        self.db.update_task_status(self.task.id, status).await
     }
 
     /// Starts running task. It runs in loop till shutdown is run.
     ///
-    /// Each task is handled per given interval.
+    /// Tasks are handled with given interval.
     pub async fn start(&mut self) {
         {
             let mut state = self.state.lock().await;
             *state = State::Running;
             // lock dropped here.
         }
+
         let mut counter = 0; // invocations counter. Will not be used if invocations is None.
         let mut timer = tokio::time::interval(self.task.interval);
         info!("handler starting with: {} task", self.task.info());
+
         while !self.shutdown.is_shutdown() {
             tokio::select! {
                 _ = self.shutdown.recv() => {
@@ -106,16 +86,19 @@ where
                     info!("applying {:?} cmd for {} task", cmd, self.task.info());
                     match cmd {
                         None => {
-                            info!("receiver has been closed to {} task, returning", self.task.info());
+                            info!("receiver has been closed for {} task, returning", self.task.info());
                             return;
                         }
                         Some(command) => {
-                            self.apply(command).await;
+                            if let Err(err) = self.apply(command).await {
+                                error!("failed to apply command to task: {:?}", err)
+                            }
                         }
                     }
                 }
                 _ = timer.tick() => {
                     info!("tick");
+
                     let state = self.state.lock().await;
                     match *state{
                         State::Running => {
@@ -134,6 +117,9 @@ where
                             info!("Task {} created, waiting for run", self.task.info());
                         }
                         State::Quit => {
+                            if let Err(err) = self.db.delete_task(self.task.id).await {
+                                error!("failed to delete task: {:?}", err);
+                            }
                             info!("Task {} is quitting", self.task.info());
                             return;
                         }
@@ -175,6 +161,7 @@ where
                         ),
                     )
                     .await;
+
                 info!("saving to db");
                 if let Err(err) = self.db.save(self.task.id, data_len + last_place).await {
                     info!("save failed");
@@ -263,4 +250,68 @@ fn add_str(s: &str, increment: u32) -> String {
     s.chars()
         .map(|c| std::char::from_u32(c as u32 + increment).unwrap_or(c))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::manager::Command;
+    use crate::core::task::{InputData, TrackingTask};
+    use crate::core::types::*;
+    use crate::error::types::Result;
+    use crate::lang::engine::Definition;
+    use crate::lang::lexer::EvalForest;
+    use crate::persistance::interface::{Db, MockPersistance};
+    use crate::shutdown::Shutdown;
+    use crate::wrap::MockAPI;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::broadcast;
+    use tokio::sync::mpsc::{channel, Receiver, Sender};
+
+    use uuid::Uuid;
+
+    use super::TaskHandler;
+
+    async fn test_get_data_fn() -> Result<InputData> {
+        Ok(InputData::String(String::from("test")))
+    }
+    fn test_run() {
+        let eval_forest = EvalForest::from_definition(&Definition::new(vec![
+            String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
+            String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
+            String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
+        ]));
+
+        let id = Uuid::parse_str("a54a0fb9-25c9-4f73-ad82-0b7f30ca1ab6").unwrap();
+        let tt = TrackingTask {
+            id,
+            name: Some(String::from("name")),
+            description: Some(String::from("description")),
+            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            spreadsheet_id: String::from("spreadsheet_id"),
+            starting_position: String::from("starting_position"),
+            sheet: String::from("sheet"),
+            direction: Direction::Vertical,
+            interval: Duration::from_secs(1),
+            with_timestamp: true,
+            timestamp_position: TimestampPosition::Before,
+            invocations: Some(1),
+            eval_forest,
+            url: String::from("url"),
+            input_type: InputType::String,
+            callbacks: None,
+            status: State::Created,
+        };
+
+        let mock_api = MockAPI::new();
+        let mock_per = MockPersistance::new();
+        let db = Db::new(Box::new(mock_per));
+
+        let (shutdown_notify, shutdown) = broadcast::channel(1);
+        let sd = Shutdown::new(shutdown);
+
+        let (send, receiver) = channel::<Command>(1);
+
+        let th = TaskHandler::new(tt, db, sd, Arc::new(mock_api), receiver);
+    }
 }

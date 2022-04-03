@@ -64,13 +64,6 @@ where
     ///
     /// Tasks are handled with given interval.
     pub async fn start(&mut self) {
-        {
-            let mut state = self.state.lock().await;
-            *state = State::Running;
-            // lock dropped here.
-        }
-
-        let mut counter = 0; // invocations counter. Will not be used if invocations is None.
         let mut timer = tokio::time::interval(self.task.interval);
         info!("handler starting with: {} task", self.task.info());
 
@@ -99,22 +92,20 @@ where
                 _ = timer.tick() => {
                     info!("tick");
 
-                    let state = self.state.lock().await;
+                    let  mut state = self.state.lock().await;
                     match *state{
+                        State::Created => {
+                            *state = State::Running; // start running task.
+                            if let Err(e) = self.db.update_task_status(self.task.id, State::Running).await{
+                                error!("failed to change status to Running: {:?}", e);
+                                return;
+                            }
+                        }
                         State::Running => {
                             self.handle().await;
-                            if let Some(invocations) = self.task.invocations {
-                                counter += 1;
-                                if counter >= invocations {
-                                    break;
-                                }
-                            }
                         }
                         State::Stopped => {
                             info!("Task {} stopped", self.task.info());
-                        }
-                        State::Created => {
-                            info!("Task {} created, waiting for run", self.task.info());
                         }
                         State::Quit => {
                             if let Err(err) = self.db.delete_task(self.task.id).await {
@@ -179,6 +170,9 @@ where
                     err.to_string(),
                 )));
             }
+        }
+        if self.task.invocations.is_some() {
+            self.task.invocations.map(|i| i - 1);
         }
     }
 }

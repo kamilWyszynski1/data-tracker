@@ -78,4 +78,13 @@ impl Persistance for InMemoryPersistance {
         })?;
         Ok(())
     }
+
+    fn get_tasks_by_status(&mut self, statuses: &[State]) -> PResult<Vec<TrackingTask>> {
+        Ok(self
+            .tasks
+            .iter()
+            .filter(|(_, tt)| statuses.contains(&tt.status))
+            .map(|(_, tt)| tt.clone())
+            .collect())
+    }
 }

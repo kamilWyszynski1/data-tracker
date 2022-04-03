@@ -6,8 +6,6 @@ table! {
 }
 
 table! {
-    use diesel::sql_types::*;
-
     tasks (uuid) {
         uuid -> Text,
         name -> Text,
@@ -26,4 +24,7 @@ table! {
     }
 }
 
-allow_tables_to_appear_in_same_query!(location, tasks,);
+allow_tables_to_appear_in_same_query!(
+    location,
+    tasks,
+);

@@ -1,6 +1,7 @@
 use super::handler::TaskHandler;
 use super::manager::{SenderManager, TaskCommand};
 use super::task::TrackingTask;
+use super::types::State;
 use crate::error::types::Result;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
@@ -15,7 +16,7 @@ use tokio::task::JoinHandle;
 // It is used to track various kind of things and keep that data in a Google Sheet.
 pub struct Tracker<A>
 where
-    A: 'static + API + Sync + Send + Clone,
+    A: 'static + API + Sync + Send,
 {
     /// Performs write of a data.
     api: Arc<A>,
@@ -43,7 +44,7 @@ where
 
 impl<A> Tracker<A>
 where
-    A: 'static + API + Sync + Send + Clone,
+    A: 'static + API + Sync + Send,
 {
     // creates new Tracker.
     pub fn new(
@@ -68,6 +69,9 @@ where
     pub async fn start(&mut self) {
         info!("Starting Tracker.");
         let mut spawned = vec![];
+        if let Err(e) = self.load_from_db(&mut spawned).await {
+            error!("{:?}", e);
+        }
 
         while !self.shutdown.is_shutdown() {
             tokio::select! {
@@ -102,7 +106,16 @@ where
         spawned: &mut Vec<JoinHandle<()>>,
     ) -> Result<()> {
         self.db.save_task(task).await?;
+        self.start_handler_for_task(task, spawned).await;
+        Ok(())
+    }
 
+    /// Creates new TaskHandler for given task and pushes it to vector of handlers.
+    async fn start_handler_for_task(
+        &mut self,
+        task: &TrackingTask,
+        spawned: &mut Vec<JoinHandle<()>>,
+    ) {
         let mut handler = TaskHandler::new(
             task.clone(),
             self.db.clone(),
@@ -111,6 +124,19 @@ where
             self.manager.add_new_mapping(task.id),
         );
         spawned.push(tokio::task::spawn(async move { handler.start().await }));
+    }
+
+    /// Load saved task from DB and start handling them.
+    async fn load_from_db(&mut self, spawned: &mut Vec<JoinHandle<()>>) -> Result<()> {
+        let tasks = self
+            .db
+            .get_tasks_by_status(&[State::Running, State::Stopped, State::Created])
+            .await?;
+        info!("{} tasks loaded from db", tasks.len());
+
+        for tt in &tasks {
+            self.start_handler_for_task(tt, spawned).await;
+        }
         Ok(())
     }
 }
@@ -120,7 +146,7 @@ mod tests {
     use crate::core::task::*;
     use crate::core::tracker::Tracker;
     use crate::error::types::{Error, Result};
-    use crate::wrap::API;
+    use crate::wrap::{MockAPI, API};
     use async_trait::async_trait; // crate for async traits.
 
     async fn test_get_data_fn() -> Result<InputData> {
@@ -145,15 +171,6 @@ mod tests {
                     self.fail_msg.to_string(),
                 ));
             }
-            Ok(())
-        }
-    }
-    #[derive(Clone)]
-    struct MockAPI {}
-
-    #[async_trait]
-    impl API for MockAPI {
-        async fn write(&self, _: Vec<Vec<String>>, _: &str, _: &str) -> Result<()> {
             Ok(())
         }
     }
@@ -237,6 +254,11 @@ mod tests {
             .with(eq(t2.clone()))
             .once()
             .returning(|_| Ok(()));
+        mock_persistence
+            .expect_get_tasks_by_status()
+            .withf(|x: &[State]| x == &[State::Running, State::Stopped, State::Created])
+            .once()
+            .returning(|_| Ok(vec![]));
 
         let mut t = Tracker::new(
             TestAPI {
@@ -257,5 +279,63 @@ mod tests {
         assert!(send.send(t1).await.is_ok());
         assert!(send.send(t2).await.is_ok());
         rx.await.unwrap();
+    }
+
+    #[tokio::test]
+    #[timeout(10000)]
+    async fn test_saved_tasks() {
+        use mockall::predicate::*;
+        use tokio::sync::oneshot;
+        let (tx, rx) = oneshot::channel::<bool>();
+
+        let mut t1 = TrackingTask::new(
+            "spreadsheet4".to_string(),
+            "".to_string(),
+            "A4".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_secs(1),
+            InputType::String,
+            String::from(""),
+        )
+        .with_name("TEST4".to_string());
+        t1.status = State::Running;
+
+        let mut t2 = TrackingTask::new(
+            "spreadsheet5".to_string(),
+            "".to_string(),
+            "A5".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_secs(1),
+            InputType::String,
+            String::from(""),
+        )
+        .with_name("TEST5".to_string())
+        .with_invocations(1);
+        t2.status = State::Stopped;
+
+        let mut mock_persistence = MockPersistance::new();
+        mock_persistence
+            .expect_get_tasks_by_status()
+            .withf(|x: &[State]| x == &[State::Running, State::Stopped, State::Created])
+            .once()
+            .returning(move |_| Ok(vec![t1.clone(), t2.clone()]));
+
+        let (shutdown_notify, shutdown) = broadcast::channel(1);
+        let (send, receive) = channel::<TrackingTask>(1);
+        let (_cmd_send, cmd_receive) = channel::<TaskCommand>(1);
+
+        let mut t = Tracker::new(
+            MockAPI::new(),
+            Db::new(Box::new(mock_persistence)),
+            receive,
+            shutdown,
+            shutdown_notify,
+            cmd_receive,
+        );
+        tokio::task::spawn(async move {
+            t.start().await;
+        });
     }
 }

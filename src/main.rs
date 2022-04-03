@@ -2,8 +2,8 @@ extern crate datatracker_rust;
 use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::TrackingTask;
 use datatracker_rust::core::tracker::Tracker;
-use datatracker_rust::persistance::in_memory::InMemoryPersistance;
 use datatracker_rust::persistance::interface::Db;
+use datatracker_rust::persistance::sqlite::{establish_connection, SqliteClient};
 use datatracker_rust::web::build::rocket;
 use datatracker_rust::wrap::APIWrapper;
 use diesel_migrations::embed_migrations;
@@ -27,10 +27,11 @@ async fn main() {
     let (cmd_send, cmd_receive) = channel::<TaskCommand>(10);
 
     let api = APIWrapper::new_with_init().await;
-    let mem = InMemoryPersistance::new();
+    let pers = SqliteClient::new(establish_connection());
+
     let mut tracker = Tracker::new(
         api,
-        Db::new(Box::new(mem)),
+        Db::new(Box::new(pers)),
         receive,
         shutdown_recv,
         shutdown_notify.clone(),

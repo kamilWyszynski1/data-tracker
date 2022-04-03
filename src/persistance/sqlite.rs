@@ -32,12 +32,14 @@ impl SqliteClient {
 }
 
 impl Persistance for SqliteClient {
-    fn save_location(&mut self, key: Uuid, value: u32) -> PResult<()> {
+    fn save_location(&mut self, k: Uuid, v: u32) -> PResult<()> {
+        use crate::schema::location::dsl::*;
+
         let l = Location {
-            key: key.to_string(),
-            value: value as i32,
+            key: k.to_string(),
+            value: v as i32,
         };
-        insert_into(location::table)
+        insert_into(location)
             .values(&l)
             .execute(&self.conn)
             .map_err(|err| {
@@ -58,7 +60,7 @@ impl Persistance for SqliteClient {
             .optional()
             .map_err(|err| {
                 Error::new_persistance_internal(
-                    String::from("failed to execute save_location query"),
+                    String::from("failed to execute read_location query"),
                     err.to_string(),
                 )
             })?
@@ -78,7 +80,7 @@ impl Persistance for SqliteClient {
             .execute(&self.conn)
             .map_err(|err| {
                 Error::new_persistance_internal(
-                    String::from("failed to execute save_location query"),
+                    String::from("failed to execute save_task query"),
                     err.to_string(),
                 )
             })?;
@@ -94,7 +96,7 @@ impl Persistance for SqliteClient {
             .optional()
             .map_err(|err| {
                 Error::new_persistance_internal(
-                    String::from("failed to execute save_location query"),
+                    String::from("failed to execute read_task query"),
                     err.to_string(),
                 )
             })?
@@ -116,7 +118,7 @@ impl Persistance for SqliteClient {
             .execute(&self.conn)
             .map_err(|err| {
                 Error::new_persistance_internal(
-                    String::from("empty Option from query read_location"),
+                    String::from("empty Option from query update_task_status"),
                     err.to_string(),
                 )
             })?;
@@ -131,6 +133,23 @@ impl Persistance for SqliteClient {
             Error::new_persistance_internal(String::from("could not delete task"), err.to_string())
         })?;
         Ok(())
+    }
+
+    fn get_tasks_by_status(&mut self, statuses: &[State]) -> PResult<Vec<TrackingTask>> {
+        use crate::schema::tasks::dsl::*;
+
+        let t: Vec<TaskModel> = tasks
+            .filter(status.eq_any(statuses))
+            .load(&self.conn)
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("failed to execute get_tasks_by_status query"),
+                    err.to_string(),
+                )
+            })?;
+        t.into_iter()
+            .map(|tm| TrackingTask::from_task_model(&tm))
+            .collect::<PResult<Vec<TrackingTask>>>()
     }
 }
 
@@ -208,5 +227,91 @@ mod tests {
 
         client.delete_task(id).unwrap();
         assert!(client.read_task(id).is_err());
+        fs::remove_file(file_name).unwrap();
+    }
+
+    fn test_save_read_by_status() {
+        let file_name = "test.sqlite3";
+        File::create(file_name).unwrap();
+
+        let connection = SqliteConnection::establish("file:test.sqlite3")
+            .unwrap_or_else(|_| panic!("Error connecting to {}", file_name));
+
+        // This will run the necessary migrations.
+        embedded_migrations::run_with_output(&connection, &mut std::io::stdout()).unwrap();
+
+        let eval_forest = EvalForest::default();
+
+        let id = Uuid::parse_str("a54a0fb9-25c9-4f73-ad82-0b7f30ca1ab6").unwrap();
+        let tt = TrackingTask {
+            id,
+            name: Some(String::from("name")),
+            description: Some(String::from("description")),
+            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            spreadsheet_id: String::from("spreadsheet_id"),
+            starting_position: String::from("starting_position"),
+            sheet: String::from("sheet"),
+            direction: Direction::Vertical,
+            interval: Duration::from_secs(1),
+            with_timestamp: true,
+            timestamp_position: TimestampPosition::Before,
+            invocations: None,
+            eval_forest: eval_forest.clone(),
+            url: String::from("url"),
+            input_type: InputType::String,
+            callbacks: None,
+            status: State::Created,
+        };
+        let tt2 = TrackingTask {
+            id,
+            name: Some(String::from("name")),
+            description: Some(String::from("description")),
+            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            spreadsheet_id: String::from("spreadsheet_id"),
+            starting_position: String::from("starting_position"),
+            sheet: String::from("sheet"),
+            direction: Direction::Vertical,
+            interval: Duration::from_secs(1),
+            with_timestamp: true,
+            timestamp_position: TimestampPosition::Before,
+            invocations: None,
+            eval_forest: eval_forest.clone(),
+            url: String::from("url"),
+            input_type: InputType::String,
+            callbacks: None,
+            status: State::Running,
+        };
+        let tt3 = TrackingTask {
+            id,
+            name: Some(String::from("name")),
+            description: Some(String::from("description")),
+            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            spreadsheet_id: String::from("spreadsheet_id"),
+            starting_position: String::from("starting_position"),
+            sheet: String::from("sheet"),
+            direction: Direction::Vertical,
+            interval: Duration::from_secs(1),
+            with_timestamp: true,
+            timestamp_position: TimestampPosition::Before,
+            invocations: None,
+            eval_forest,
+            url: String::from("url"),
+            input_type: InputType::String,
+            callbacks: None,
+            status: State::Quit,
+        };
+
+        let mut client = SqliteClient::new(connection);
+        client.save_task(&tt).unwrap();
+        client.save_task(&tt2).unwrap();
+        client.save_task(&tt3).unwrap();
+
+        let tasks = client
+            .get_tasks_by_status(&[State::Running, State::Quit])
+            .unwrap();
+
+        assert_eq!(vec![tt2, tt3], tasks);
+
+        fs::remove_file(file_name).unwrap();
     }
 }

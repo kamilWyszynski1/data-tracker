@@ -18,6 +18,7 @@ pub trait Persistance {
     fn read_task(&mut self, uuid: Uuid) -> PResult<TrackingTask>;
     fn update_task_status(&mut self, uuid: Uuid, status: State) -> PResult<()>;
     fn delete_task(&mut self, uuid: Uuid) -> PResult<()>;
+    fn get_tasks_by_status(&mut self, statuses: &[State]) -> PResult<Vec<TrackingTask>>;
 }
 
 #[derive(Clone)]
@@ -33,15 +34,12 @@ impl Db {
             shared: Arc::new(Mutex::new(p)),
         }
     }
-
     pub async fn get(&self, key: &Uuid) -> PResult<u32> {
         self.shared.lock().await.read_location(key)
     }
-
     pub async fn save(&self, key: Uuid, value: u32) -> PResult<()> {
         self.shared.lock().await.save_location(key, value)
     }
-
     pub async fn save_task(&mut self, task: &TrackingTask) -> PResult<()> {
         self.shared.lock().await.save_task(task)
     }
@@ -51,8 +49,10 @@ impl Db {
     pub async fn update_task_status(&mut self, uuid: Uuid, status: State) -> PResult<()> {
         self.shared.lock().await.update_task_status(uuid, status)
     }
-
     pub async fn delete_task(&mut self, uuid: Uuid) -> PResult<()> {
         self.shared.lock().await.delete_task(uuid)
+    }
+    pub async fn get_tasks_by_status(&mut self, statuses: &[State]) -> PResult<Vec<TrackingTask>> {
+        self.shared.lock().await.get_tasks_by_status(statuses)
     }
 }

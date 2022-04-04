@@ -74,7 +74,7 @@ pub async fn create(
 
 #[cfg(test)]
 mod tests {
-    use crate::web::task::TaskCreateRequest;
+    use crate::server::task::TaskCreateRequest;
 
     #[test]
     fn test_deserializing() {

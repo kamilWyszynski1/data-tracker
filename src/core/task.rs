@@ -3,7 +3,7 @@ use crate::data::getter::getter_from_url;
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::EvalForest;
 use crate::models::task::TaskModel;
-use crate::web::task::TaskCreateRequest;
+use crate::server::task::TaskCreateRequest;
 use serde::Deserialize;
 use serde_json::Value;
 use std::future::Future;

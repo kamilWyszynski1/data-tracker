@@ -4,12 +4,15 @@ use datatracker_rust::core::task::TrackingTask;
 use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::persistance::sqlite::{establish_connection, SqliteClient};
-use datatracker_rust::web::build::rocket;
+use datatracker_rust::server::build::rocket;
+use datatracker_rust::server::proto::StatsService;
+use datatracker_rust::stats::stats_server::StatsServer;
 use datatracker_rust::wrap::APIWrapper;
 use diesel_migrations::embed_migrations;
 use tokio::join;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::channel;
+use tonic::transport::Server;
 
 #[macro_use]
 extern crate diesel_migrations;
@@ -28,10 +31,11 @@ async fn main() {
 
     let api = APIWrapper::new_with_init().await;
     let pers = SqliteClient::new(establish_connection());
+    let db = Db::new(Box::new(pers));
 
     let mut tracker = Tracker::new(
         api,
-        Db::new(Box::new(pers)),
+        db.clone(),
         receive,
         shutdown_recv,
         shutdown_notify.clone(),
@@ -48,10 +52,26 @@ async fn main() {
             }
         }
     });
+
     let start = tokio::task::spawn(async move {
         tracker.start().await;
     });
 
+    let addr = "[::1]:10000".parse().unwrap();
+    let stats = StatsService::new(db);
+    let svc = StatsServer::new(stats);
+    let rpc_server_start = tokio::task::spawn(async move {
+        Server::builder()
+            .add_service(svc)
+            .serve_with_shutdown(addr, shutdown())
+            .await
+            .unwrap();
+    });
+
     let rocket = rocket(cmd_send, tt_send);
-    let (_, _) = join!(rocket.launch(), start);
+    let (_, _, _) = join!(rocket.launch(), start, rpc_server_start);
+}
+
+async fn shutdown() {
+    tokio::signal::ctrl_c().await.unwrap()
 }

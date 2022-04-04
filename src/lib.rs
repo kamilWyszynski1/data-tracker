@@ -9,8 +9,8 @@ pub mod lang;
 pub mod models;
 pub mod persistance;
 pub mod schema;
+pub mod server;
 pub mod shutdown;
-pub mod web;
 pub mod wrap;
 
 #[macro_use]
@@ -32,3 +32,7 @@ extern crate yup_oauth2;
 extern crate ntest;
 #[macro_use]
 extern crate rocket;
+
+pub mod stats {
+    tonic::include_proto!("stats");
+}

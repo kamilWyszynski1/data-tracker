@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package stats;
+
+service Stats {
+    rpc GetStats(GetStatsRequest) returns (stream GetStatsResponse) {};
+}
+
+message GetStatsRequest {}
+
+message GetStatsResponse {
+    string id = 1;
+    string name = 2;
+    string spreadsheet_id = 3;
+    string sheet = 4;
+    string direction = 5;
+    int32 interval_secs = 6;
+    string url = 7;
+    string input_type = 8;
+    string status = 9;
+    string eval_forest = 10;
+
+    int32 till_next_call = 11;
+    bool currently_running = 12;
+}

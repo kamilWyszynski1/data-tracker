@@ -46,7 +46,7 @@ pub async fn apply(
 mod tests {
     use crate::core::manager::{Command, TaskCommand};
     use crate::core::task::TrackingTask;
-    use crate::web::build::rocket;
+    use crate::server::build::rocket;
     use rocket::http::{ContentType, Status};
     use rocket::local::asynchronous::Client;
     use tokio::sync::mpsc::channel;

@@ -40,12 +40,12 @@ where
         receiver: Receiver<Command>,
     ) -> Self {
         TaskHandler {
-            task,
             db,
             shutdown,
             api,
-            state: Mutex::new(State::Created),
+            state: Mutex::new(task.status),
             receiver,
+            task,
         }
     }
 

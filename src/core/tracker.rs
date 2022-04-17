@@ -105,7 +105,9 @@ where
         task: &TrackingTask,
         spawned: &mut Vec<JoinHandle<()>>,
     ) -> Result<()> {
-        self.db.save_task(task).await?;
+        if task.status == State::Created {
+            self.db.save_task(task).await?;
+        }
         self.start_handler_for_task(task, spawned).await;
         Ok(())
     }
@@ -116,6 +118,10 @@ where
         task: &TrackingTask,
         spawned: &mut Vec<JoinHandle<()>>,
     ) {
+        info!(
+            "start_handler_for_task - for {}:{} task",
+            task.id, task.status
+        );
         let mut handler = TaskHandler::new(
             task.clone(),
             self.db.clone(),

@@ -33,6 +33,7 @@ tokio-stream = "0.1.8"
 futures = "0.3.21"
 tui = "0.17"
 crossterm = "0.22"
+postgres = "0.19.2"
 
 [build-dependencies]
 tonic-build = "0.7.0"

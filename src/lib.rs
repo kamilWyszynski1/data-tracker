@@ -2,6 +2,7 @@
 #![allow(unused_macros)]
 #![feature(type_alias_impl_trait)]
 
+pub mod connector;
 pub mod core;
 pub mod data;
 pub mod error;

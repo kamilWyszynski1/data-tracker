@@ -30,6 +30,7 @@ struct App {
     state: TableState,
     items: Vec<GetStatsResponse>,
     s: Arc<Mutex<Vec<GetStatsResponse>>>,
+    picked: Option<usize>,
 }
 
 impl App {
@@ -38,9 +39,13 @@ impl App {
             state: TableState::default(),
             s: state.clone(),
             items: state.lock().await.to_owned(),
+            picked: None,
         }
     }
     pub fn next(&mut self) {
+        if self.picked.is_some() {
+            return;
+        }
         let i = match self.state.selected() {
             Some(i) => {
                 if i >= self.items.len() - 1 {
@@ -55,6 +60,9 @@ impl App {
     }
 
     pub fn previous(&mut self) {
+        if self.picked.is_some() {
+            return;
+        }
         let i = match self.state.selected() {
             Some(i) => {
                 if i == 0 {
@@ -70,6 +78,16 @@ impl App {
 
     pub async fn reload(&mut self) {
         self.items = self.s.lock().await.to_owned();
+    }
+
+    pub fn pick(&mut self) {
+        if self.picked.is_some() {
+            return;
+        }
+        match self.state.selected() {
+            Some(i) => self.picked = Some(i),
+            None => return,
+        };
     }
 }
 
@@ -129,7 +147,13 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) {
 
         if let Event::Key(key) = event::read().unwrap() {
             match key.code {
-                KeyCode::Char('q') => return,
+                KeyCode::Char('q') => {
+                    if app.picked.is_none() {
+                        return;
+                    }
+                    app.picked = None;
+                }
+                KeyCode::Enter => app.pick(),
                 KeyCode::Down => app.next(),
                 KeyCode::Up => app.previous(),
                 _ => {}
@@ -138,40 +162,60 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) {
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
-    let rects = Layout::default()
-        .constraints([Constraint::Percentage(100)].as_ref())
-        .split(f.size());
-
-    let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+fn create_headers_cells<'a>(headers: &[&'a str]) -> Row<'a> {
     let normal_style = Style::default().bg(Color::Blue);
-    let header_cells = ["Header1", "Header2", "Header3", "Header4"]
+    let header_cells = headers
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
     let header = Row::new(header_cells)
         .style(normal_style)
         .height(1)
         .bottom_margin(1);
-    let rows = app.items.iter().map(|item| {
-        let items = get_stats_response_to_str(item);
-        let height = items
-            .iter()
-            .map(|content| content.chars().filter(|c| *c == '\n').count())
-            .max()
-            .unwrap_or(0)
-            + 1;
-        let cells = items.iter().map(|c| Cell::from(*c));
-        Row::new(cells).height(height as u16).bottom_margin(1)
-    });
-    let t = Table::new(rows)
-        .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Table"))
-        .highlight_style(selected_style)
-        .highlight_symbol(">> ")
-        .widths(&[
-            Constraint::Percentage(50),
-            Constraint::Length(30),
-            Constraint::Min(10),
-        ]);
+    header
+}
+
+fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
+    let rects = Layout::default()
+        .constraints([Constraint::Percentage(100)].as_ref())
+        .split(f.size());
+    let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+    let t: Table;
+
+    match app.picked {
+        Some(i) => {
+            let rows = vec![Row::new(vec![Cell::from(app.items[i].eval_forest.clone())])
+                .height(10 as u16)
+                .bottom_margin(1)];
+            t = Table::new(rows)
+                .header(create_headers_cells(&["definition"]))
+                .block(Block::default().borders(Borders::ALL).title("Table"))
+                .highlight_style(selected_style)
+                .highlight_symbol(">> ")
+                .widths(&[Constraint::Percentage(100)]);
+        }
+        None => {
+            let rows = app.items.iter().map(|item| {
+                let items = get_stats_response_to_str(item);
+                let height = items
+                    .iter()
+                    .map(|content| content.chars().filter(|c| *c == '\n').count())
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
+                let cells = items.iter().map(|c| Cell::from(*c));
+                Row::new(cells).height(height as u16).bottom_margin(1)
+            });
+            t = Table::new(rows)
+                .header(create_headers_cells(&["uuid", "name", "url"]))
+                .block(Block::default().borders(Borders::ALL).title("Table"))
+                .highlight_style(selected_style)
+                .highlight_symbol(">> ")
+                .widths(&[
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(40),
+                    Constraint::Percentage(40),
+                ]);
+        }
+    }
     f.render_stateful_widget(t, rects[0], &mut app.state);
 }

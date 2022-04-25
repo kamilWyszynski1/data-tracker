@@ -1,5 +1,5 @@
 use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
-use crate::error::types::{Error, Result};
+use crate::error::types::Result;
 use postgres::{Client, NoTls};
 
 #[derive(Clone)]
@@ -30,6 +30,7 @@ pub struct PSQLConnector {
     client: Client,
     query: String,
 }
+
 
 impl PSQLConnector {
     pub fn new(cfg: PSQLConfig, query: String) -> Self {

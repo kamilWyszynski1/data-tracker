@@ -1,4 +1,4 @@
-use crate::core::task::TrackingTask;
+use crate::core::task::{TaskInput, TrackingTask};
 use crate::core::types::*;
 use crate::lang::engine::Definition;
 use rocket::http::{ContentType, Status};
@@ -20,8 +20,7 @@ pub struct TaskCreateRequest {
     pub direction: Direction,
     pub interval_secs: u64,
     pub definition: Definition,
-    pub input_type: InputType,
-    pub url: String, // url for acquiring the data.
+    pub input: TaskInput,
 }
 
 pub struct TaskCreateResponse {

@@ -3,7 +3,7 @@ use diesel::deserialize;
 use diesel::serialize::{self, Output};
 use diesel::sql_types::Text;
 use diesel::types::{FromSql, ToSql};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::io;
 
@@ -11,7 +11,7 @@ use super::manager::Command;
 
 /// Supported types for task's input data.
 /// Should match with InputData.
-#[derive(FromSqlRow, AsExpression, Debug, Clone, Copy, Deserialize, PartialEq)]
+#[derive(FromSqlRow, AsExpression, Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[sql_type = "Text"]
 pub enum InputType {
@@ -88,6 +88,12 @@ impl Display for State {
             Self::Quit => "quit",
         };
         write!(f, "{:?}", v)
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::Created
     }
 }
 

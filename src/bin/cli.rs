@@ -8,7 +8,7 @@ fn get_stats_response_to_str<'a>(gsr: &'a GetStatsResponse) -> Vec<&'a str> {
     let mut v = vec![];
     v.push(gsr.id.as_str());
     v.push(gsr.name.as_str());
-    v.push(gsr.url.as_str());
+    v.push(gsr.input.as_str());
     v
 }
 

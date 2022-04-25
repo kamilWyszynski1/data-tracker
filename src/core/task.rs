@@ -1,10 +1,10 @@
 use super::types::*;
-use crate::data::getter::getter_from_url;
+use crate::connector::factory::getter_from_task_input;
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::EvalForest;
 use crate::models::task::TaskModel;
 use crate::server::task::TaskCreateRequest;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
@@ -12,6 +12,46 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 use uuid::Uuid;
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub enum TaskInput {
+    None,
+    String {
+        value: String,
+    },
+    HTTP {
+        url: String,
+        input_type: InputType,
+    },
+    PSQL {
+        host: String,
+        user: String,
+        password: String,
+        query: String,
+    },
+}
+
+impl TaskInput {
+    pub fn from_json(json: &str) -> Result<Self> {
+        serde_json::from_str(json).map_err(|err| {
+            Error::new_internal(
+                String::from("from_string"),
+                String::from("failed to deserialize task input"),
+                err.to_string(),
+            )
+        })
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::json!(self).to_string()
+    }
+}
+
+impl Default for TaskInput {
+    fn default() -> Self {
+        Self::None
+    }
+}
 
 /// Enum for user's input data.
 #[derive(Debug, Clone, Deserialize)]
@@ -46,9 +86,8 @@ pub struct TrackingTask {
     pub timestamp_position: TimestampPosition,
     pub invocations: Option<i32>, // number of invocations.
     pub eval_forest: EvalForest,  // definition of handling data.
-    pub url: String,
-    pub input_type: InputType,
     pub status: State,
+    pub input: TaskInput,
 
     #[derivative(Debug = "ignore")]
     #[derivative(PartialEq = "ignore")]
@@ -66,8 +105,6 @@ impl TrackingTask {
         direction: Direction,
         data_fn: BoxFnThatReturnsAFuture,
         interval: Duration,
-        input_type: InputType,
-        url: String,
     ) -> TrackingTask {
         assert_ne!(spreadsheet_id, "", "spreadsheet_id cannot be empty");
         assert!(
@@ -89,9 +126,8 @@ impl TrackingTask {
             timestamp_position: TimestampPosition::None,
             invocations: None,
             eval_forest: EvalForest::default(),
-            input_type,
-            url,
             status: State::Created,
+            input: TaskInput::default(),
         }
     }
 
@@ -104,11 +140,13 @@ impl TrackingTask {
             )
         })?;
 
+        let input = TaskInput::from_json(&tm.input)?;
+
         Ok(TrackingTask {
             id,
             name: Some(tm.name.clone()),
             description: Some(tm.description.clone()),
-            data_fn: Arc::new(getter_from_url(&tm.url, InputType::Json)),
+            data_fn: Arc::new(getter_from_task_input(&input)),
             spreadsheet_id: tm.spreadsheet_id.clone(),
             starting_position: tm.position.clone(),
             sheet: tm.sheet.clone(),
@@ -118,10 +156,9 @@ impl TrackingTask {
             timestamp_position: tm.timestamp_position,
             invocations: None,
             eval_forest: EvalForest::from_string(&tm.eval_forest)?,
-            url: tm.url.clone(),
-            input_type: tm.input_type,
             status: tm.status,
             callbacks: None,
+            input,
         })
     }
 
@@ -207,10 +244,9 @@ impl TrackingTask {
             timestamp_position: TimestampPosition::None,
             invocations: None,
             eval_forest: EvalForest::from_definition(&tcr.definition),
-            data_fn: Arc::new(getter_from_url(&tcr.url, tcr.input_type)),
-            input_type: tcr.input_type,
-            url: tcr.url,
+            data_fn: Arc::new(getter_from_task_input(&tcr.input)),
             status: State::Created,
+            input: tcr.input,
         })
     }
 }
@@ -233,8 +269,6 @@ mod test {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
-            InputType::String,
-            String::from(""),
         );
         tt = tt.with_callback(|res: Result<()>| {
             assert!(res.is_ok());
@@ -252,8 +286,6 @@ mod test {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
-            InputType::String,
-            String::from(""),
         );
         tt = tt.with_name("test".to_string());
         assert_eq!(tt.name.unwrap_or_default().as_str(), "test")
@@ -268,8 +300,6 @@ mod test {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
-            InputType::String,
-            String::from(""),
         );
         tt = tt.with_description("test".to_string());
         assert_eq!(tt.description.unwrap_or_default().as_str(), "test")

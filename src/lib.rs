@@ -4,7 +4,6 @@
 
 pub mod connector;
 pub mod core;
-pub mod data;
 pub mod error;
 pub mod lang;
 pub mod models;

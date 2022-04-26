@@ -1,6 +1,6 @@
 use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
 use crate::error::types::Result;
-use postgres::{Client, NoTls};
+use tokio_postgres::{Client, NoTls};
 
 #[derive(Clone)]
 pub struct PSQLConfig {
@@ -31,25 +31,32 @@ pub struct PSQLConnector {
     query: String,
 }
 
-
 impl PSQLConnector {
-    pub fn new(cfg: PSQLConfig, query: String) -> Self {
-        let client = Client::connect(cfg.to_conn_str().as_str(), NoTls).unwrap();
+    pub async fn new(cfg: PSQLConfig, query: String) -> Self {
+        let (client, conn) = tokio_postgres::connect(cfg.to_conn_str().as_str(), NoTls)
+            .await
+            .unwrap();
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
         Self { client, query }
     }
 
     /// Queries new data, returns only String for now.
-    fn query(&mut self) -> String {
-        let row = self.client.query_one(&self.query, &[]).unwrap();
-        row.get(0)
+    async fn query(&mut self) -> String {
+        let row = self.client.query_one(&self.query, &[]).await.unwrap();
+        let s: String = row.get(0);
+        s
     }
 }
 
 /// Function wraps psql config and query into async function that will be run
 /// in order to retrieve data from postgresql.
 async fn psql_wrap(cfg: PSQLConfig, query: String) -> Result<InputData> {
-    let mut psql = PSQLConnector::new(cfg, query);
-    Ok(InputData::String(psql.query()))
+    let mut psql = PSQLConnector::new(cfg, query).await;
+    Ok(InputData::String(psql.query().await))
 }
 
 /// Creates getter for data from psql.

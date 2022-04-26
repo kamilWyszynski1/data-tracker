@@ -93,7 +93,8 @@ mod tests {
                 ]
             },
             "input_type": "json",
-            "url": "whatever"
+            "url": "whatever",
+            "input": "None"
         }"#,
         )
         .unwrap();

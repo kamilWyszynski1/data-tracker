@@ -7,7 +7,7 @@ use datatracker_rust::persistance::sqlite::{establish_connection, SqliteClient};
 use datatracker_rust::server::build::rocket;
 use datatracker_rust::server::proto::StatsService;
 use datatracker_rust::stats::stats_server::StatsServer;
-use datatracker_rust::wrap::APIWrapper;
+use datatracker_rust::wrap::StdoutAPI;
 use diesel_migrations::embed_migrations;
 use tokio::join;
 use tokio::sync::broadcast;
@@ -29,7 +29,7 @@ async fn main() {
     let (tt_send, receive) = channel::<TrackingTask>(10);
     let (cmd_send, cmd_receive) = channel::<TaskCommand>(10);
 
-    let api = APIWrapper::new_with_init().await;
+    let api = StdoutAPI::default();
     let pers = SqliteClient::new(establish_connection());
     let db = Db::new(Box::new(pers));
 

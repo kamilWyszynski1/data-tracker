@@ -230,8 +230,6 @@ mod tests {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
-            InputType::String,
-            String::from(""),
         )
         .with_name("TEST4".to_string())
         .with_invocations(1);
@@ -242,8 +240,6 @@ mod tests {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
-            InputType::String,
-            String::from(""),
         )
         .with_name("TEST5".to_string())
         .with_callback(c(tx))
@@ -301,8 +297,6 @@ mod tests {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
-            InputType::String,
-            String::from(""),
         )
         .with_name("TEST4".to_string());
         t1.status = State::Running;
@@ -314,8 +308,6 @@ mod tests {
             Direction::Vertical,
             Box::new(move || Box::pin(test_get_data_fn())),
             std::time::Duration::from_secs(1),
-            InputType::String,
-            String::from(""),
         )
         .with_name("TEST5".to_string())
         .with_invocations(1);

@@ -1,6 +1,13 @@
-use crate::core::task::{BoxFnThatReturnsAFuture, TaskInput};
-
 use super::*;
+use crate::core::task::{BoxFnThatReturnsAFuture, InputData, TaskInput};
+use crate::error::types::Result;
+
+fn empty_getter() -> BoxFnThatReturnsAFuture {
+    async fn empty() -> Result<InputData> {
+        Ok(InputData::String(String::from("")))
+    }
+    Box::new(move || Box::pin(empty()))
+}
 
 pub fn getter_from_task_input(input: &TaskInput) -> BoxFnThatReturnsAFuture {
     match input.clone() {
@@ -12,6 +19,6 @@ pub fn getter_from_task_input(input: &TaskInput) -> BoxFnThatReturnsAFuture {
             password,
             query,
         } => psql::getter_from_psql(psql::PSQLConfig::new(host, user, password), query),
-        TaskInput::None => todo!(),
+        TaskInput::None => empty_getter(),
     }
 }

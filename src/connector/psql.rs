@@ -1,20 +1,22 @@
 use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
-use crate::error::types::Result;
+use crate::error::types::{Error, Result};
 use postgres::{Client, NoTls};
 
 #[derive(Clone)]
 pub struct PSQLConfig {
     host: String,
-    username: String,
+    port: u16,
+    user: String,
     password: String,
     db: String,
 }
 
 impl PSQLConfig {
-    pub fn new(host: String, username: String, password: String, db: String) -> Self {
+    pub fn new(host: String, port: u16, user: String, password: String, db: String) -> Self {
         Self {
             host,
-            username,
+            port,
+            user,
             password,
             db,
         }
@@ -22,28 +24,45 @@ impl PSQLConfig {
 
     pub fn to_conn_str(&self) -> String {
         format!(
-            "host={} user={} password={} dbname={}",
-            self.host, self.username, self.password, self.db,
+            "host={} port={} user={} password={} dbname={}",
+            self.host, self.port, self.user, self.password, self.db,
         )
     }
-}
-
-pub fn new(cfg: PSQLConfig) -> Client {
-    Client::connect(cfg.to_conn_str().as_str(), NoTls).unwrap()
 }
 
 /// Function wraps psql config and query into async function that will be run
 /// in order to retrieve data from postgresql.
 async fn psql_wrap(cfg: PSQLConfig, query: String) -> Result<InputData> {
-    let s = tokio::task::spawn_blocking(move || {
-        let mut client = new(cfg);
-        let row = client.query_one(&query, &[]).unwrap();
-        row.get(0)
+    Ok(tokio::task::spawn_blocking(move || -> Result<InputData> {
+        let mut client = Client::connect(cfg.to_conn_str().as_str(), NoTls).map_err(|err| {
+            Error::new_internal(
+                String::from("psql_wrap"),
+                String::from("failed to create psql client"),
+                err.to_string(),
+            )
+        })?;
+        let rows = client.query(&query, &[]).map_err(|err| {
+            Error::new_internal(
+                String::from("psql_wrap"),
+                String::from("failed to create query "),
+                err.to_string(),
+            )
+        })?;
+        if rows.len() == 1 {
+            return Ok(InputData::String(rows[0].get(0)));
+        }
+        Ok(InputData::Vector(
+            rows.iter().map(|r| InputData::String(r.get(0))).collect(),
+        ))
     })
     .await
-    .unwrap();
-
-    Ok(InputData::String(s))
+    .map_err(|err| {
+        Error::new_internal(
+            String::from("psql_wrap"),
+            String::from("failed to await spawned blocked "),
+            err.to_string(),
+        )
+    })??)
 }
 
 /// Creates getter for data from psql.

@@ -25,6 +25,7 @@ pub enum TaskInput {
     },
     PSQL {
         host: String,
+        port: u16,
         user: String,
         password: String,
         query: String,
@@ -59,6 +60,7 @@ impl Default for TaskInput {
 pub enum InputData {
     String(String),
     Json(Value),
+    Vector(Vec<InputData>),
 }
 
 // type aliases added, because this is a chonker of a type
@@ -205,6 +207,19 @@ impl TrackingTask {
         self
     }
 
+    /// sets eval_forest field.
+    pub fn with_eval_forest(mut self, eval_forest: EvalForest) -> TrackingTask {
+        self.eval_forest = eval_forest;
+        self
+    }
+
+    //TODO: refactor - input and data_fn should be highly connected.
+    /// sets input field.
+    pub fn with_input(mut self, input: TaskInput) -> TrackingTask {
+        self.input = input;
+        self
+    }
+
     // runs task callbacks on result.
     pub fn run_callbacks(&self, result: Result<()>) {
         info!("running callbacks: {:?}", self.callbacks);
@@ -257,6 +272,8 @@ mod test {
     use crate::core::task::{Direction, InputData, InputType, TrackingTask};
     use crate::error::types::Result;
 
+    use super::TaskInput;
+
     #[allow(dead_code)]
     async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
@@ -304,5 +321,21 @@ mod test {
         );
         tt = tt.with_description("test".to_string());
         assert_eq!(tt.description.unwrap_or_default().as_str(), "test")
+    }
+
+    #[test]
+    fn test_task_input_to_json() {
+        let ti = TaskInput::PSQL {
+            host: String::from("host"),
+            port: 5432,
+            user: String::from("user"),
+            password: String::from("pass"),
+            query: String::from("SELECT 1"),
+            db: String::from("test"),
+        };
+        assert_eq!(
+            r#"{"PSQL":{"db":"test","host":"host","password":"pass","port":5432,"query":"SELECT 1","user":"user"}}"#,
+            ti.to_json()
+        )
     }
 }

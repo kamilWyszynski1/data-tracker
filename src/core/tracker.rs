@@ -106,6 +106,7 @@ where
         spawned: &mut Vec<JoinHandle<()>>,
     ) -> Result<()> {
         if task.status == State::Created {
+            debug!("saving task on receive: {:?}", task);
             self.db.save_task(task).await?;
         }
         self.start_handler_for_task(task, spawned).await;
@@ -141,6 +142,7 @@ where
         info!("{} tasks loaded from db", tasks.len());
 
         for tt in &tasks {
+            debug!("task from database: {:?}", tt);
             self.start_handler_for_task(tt, spawned).await;
         }
         Ok(())

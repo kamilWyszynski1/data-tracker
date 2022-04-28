@@ -1,62 +1,49 @@
 use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
 use crate::error::types::Result;
-use tokio_postgres::{Client, NoTls};
+use postgres::{Client, NoTls};
 
 #[derive(Clone)]
 pub struct PSQLConfig {
     host: String,
     username: String,
     password: String,
+    db: String,
 }
 
 impl PSQLConfig {
-    pub fn new(host: String, username: String, password: String) -> Self {
+    pub fn new(host: String, username: String, password: String, db: String) -> Self {
         Self {
             host,
             username,
             password,
+            db,
         }
     }
 
     pub fn to_conn_str(&self) -> String {
         format!(
-            "host={} user={} password={}",
-            self.host, self.username, self.password
+            "host={} user={} password={} dbname={}",
+            self.host, self.username, self.password, self.db,
         )
     }
 }
 
-pub struct PSQLConnector {
-    client: Client,
-    query: String,
-}
-
-impl PSQLConnector {
-    pub async fn new(cfg: PSQLConfig, query: String) -> Self {
-        let (client, conn) = tokio_postgres::connect(cfg.to_conn_str().as_str(), NoTls)
-            .await
-            .unwrap();
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                eprintln!("connection error: {}", e);
-            }
-        });
-        Self { client, query }
-    }
-
-    /// Queries new data, returns only String for now.
-    async fn query(&mut self) -> String {
-        let row = self.client.query_one(&self.query, &[]).await.unwrap();
-        let s: String = row.get(0);
-        s
-    }
+pub fn new(cfg: PSQLConfig) -> Client {
+    Client::connect(cfg.to_conn_str().as_str(), NoTls).unwrap()
 }
 
 /// Function wraps psql config and query into async function that will be run
 /// in order to retrieve data from postgresql.
 async fn psql_wrap(cfg: PSQLConfig, query: String) -> Result<InputData> {
-    let mut psql = PSQLConnector::new(cfg, query).await;
-    Ok(InputData::String(psql.query().await))
+    let s = tokio::task::spawn_blocking(move || {
+        let mut client = new(cfg);
+        let row = client.query_one(&query, &[]).unwrap();
+        row.get(0)
+    })
+    .await
+    .unwrap();
+
+    Ok(InputData::String(s))
 }
 
 /// Creates getter for data from psql.

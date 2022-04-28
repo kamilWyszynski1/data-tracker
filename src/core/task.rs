@@ -28,6 +28,7 @@ pub enum TaskInput {
         user: String,
         password: String,
         query: String,
+        db: String,
     },
 }
 

@@ -18,7 +18,8 @@ pub fn getter_from_task_input(input: &TaskInput) -> BoxFnThatReturnsAFuture {
             user,
             password,
             query,
-        } => psql::getter_from_psql(psql::PSQLConfig::new(host, user, password), query),
+            db,
+        } => psql::getter_from_psql(psql::PSQLConfig::new(host, user, password, db), query),
         TaskInput::None => empty_getter(),
     }
 }

@@ -50,10 +50,11 @@ async fn test_psql_connector() {
     });
 
     let input = TaskInput::PSQL {
-        host: String::from("localhost:5432"),
+        host: String::from("localhost"),
         user: String::from("postgres"),
         password: String::from("password"),
-        query: String::from("SELECT * FROM test_table"),
+        query: String::from("SELECT value FROM test_table where id=1"),
+        db: String::from("test"),
     };
     let empty_string = String::from("test");
     let tt = TrackingTask::new(

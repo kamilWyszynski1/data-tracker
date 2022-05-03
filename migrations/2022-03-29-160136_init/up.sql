@@ -10,7 +10,6 @@ CREATE TABLE tasks (
     with_timestamp      BOOLEAN NOT NULL,
     timestamp_position  TEXT NOT NULL,
     eval_forest         TEXT NOT NULL,
-    url                 TEXT NOT NULL,
-    input_type          TEXT NOT NULL,
+    input               TEXT NOT NULL,
     status              TEXT NOT NULL
 );

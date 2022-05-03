@@ -163,6 +163,7 @@ impl Node {
                     Keyword::Json => json(&nodes),
                     Keyword::Object => object(&nodes),
                     Keyword::HTTP => http(&nodes),
+                    Keyword::Log => log(&nodes),
                     Keyword::None => panic!("should not be reached"),
                 }
             }
@@ -404,6 +405,11 @@ fn http(nodes: &[Variable]) -> EvalResult<Variable> {
     Ok(Variable::Json(body))
 }
 
+fn log(nodes: &[Variable]) -> EvalResult<Variable> {
+    info!("value of nods: {:?}", nodes);
+    Ok(Variable::None)
+}
+
 /// Parses single Variable to given type.
 fn parse_single_param<T>(nodes: &[Variable]) -> EvalResult<T>
 where
@@ -469,6 +475,7 @@ pub enum Keyword {
     Div,
     Mult,
     HTTP, // performs http request, has to return Variable::Json.
+    Log,  // logs given Variable.
 }
 
 impl Keyword {
@@ -488,6 +495,7 @@ impl Keyword {
             "mult" => Self::Mult,
             "object" => Self::Object,
             "http" => Self::HTTP,
+            "log" => Self::Log,
             _ => Self::None,
         };
         if s == Self::None {

@@ -249,7 +249,7 @@ fn add_str(s: &str, increment: u32) -> String {
 #[cfg(test)]
 mod tests {
     use crate::core::manager::Command;
-    use crate::core::task::{InputData, TrackingTask};
+    use crate::core::task::{InputData, TaskInput, TrackingTask};
     use crate::core::types::*;
     use crate::error::types::Result;
     use crate::lang::engine::Definition;
@@ -291,8 +291,7 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: Some(1),
             eval_forest,
-            url: String::from("url"),
-            input_type: InputType::String,
+            input: TaskInput::default(),
             callbacks: None,
             status: State::Created,
         };

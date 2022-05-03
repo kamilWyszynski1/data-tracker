@@ -155,7 +155,7 @@ impl Persistance for SqliteClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::task::{InputData, TrackingTask};
+    use crate::core::task::{InputData, TaskInput, TrackingTask};
     use crate::core::types::*;
     use crate::error::types::Result;
     use crate::lang::engine::Definition;
@@ -208,10 +208,9 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest,
-            url: String::from("url"),
-            input_type: InputType::String,
             callbacks: None,
             status: State::Created,
+            input: TaskInput::default(),
         };
 
         let mut client = SqliteClient::new(connection);
@@ -257,8 +256,7 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest: eval_forest.clone(),
-            url: String::from("url"),
-            input_type: InputType::String,
+            input: TaskInput::default(),
             callbacks: None,
             status: State::Created,
         };
@@ -276,8 +274,7 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest: eval_forest.clone(),
-            url: String::from("url"),
-            input_type: InputType::String,
+            input: TaskInput::default(),
             callbacks: None,
             status: State::Running,
         };
@@ -295,8 +292,7 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest,
-            url: String::from("url"),
-            input_type: InputType::String,
+            input: TaskInput::default(),
             callbacks: None,
             status: State::Quit,
         };

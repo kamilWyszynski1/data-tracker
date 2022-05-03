@@ -16,8 +16,7 @@ pub struct TaskModel {
     pub with_timestamp: bool, // whether to write timestamp.
     pub timestamp_position: TimestampPosition,
     pub eval_forest: String, // definition of handling data.
-    pub url: String,
-    pub input_type: InputType,
+    pub input: String,       // json of input definition.
     pub status: State,
 }
 
@@ -31,13 +30,12 @@ impl TaskModel {
             position: tt.starting_position.clone(),
             direction: tt.direction,
             interval_secs: tt.interval.as_secs() as i32,
-            input_type: tt.input_type,
-            url: tt.url.clone(),
             description: tt.description.as_ref().cloned().unwrap_or_default(),
-            status: State::Created,
+            status: tt.status,
             with_timestamp: tt.with_timestamp,
             timestamp_position: tt.timestamp_position,
             eval_forest: tt.eval_forest.to_string().unwrap_or_default(),
+            input: tt.input.to_json(),
         }
     }
 }

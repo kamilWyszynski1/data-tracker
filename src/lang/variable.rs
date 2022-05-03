@@ -20,6 +20,7 @@ impl Variable {
         match td {
             InputData::String(s) => Variable::String(s.clone()),
             InputData::Json(j) => Variable::Json(j.clone()),
+            InputData::Vector(v) => Variable::Vector(v.iter().map(Self::from_input_data).collect()),
         }
     }
 }
@@ -85,7 +86,7 @@ impl Variable {
             | Variable::Bool(_)
             | Variable::Int(_)
             | Variable::Float(_)
-            | Variable::String(_) => Err(format!("cannot extract form: {}", self)),
+            | Variable::String(_) => Err(format!("cannot extract from: {}", self)),
             Variable::Vector(ref vec) => {
                 let inx = match f {
                     Variable::Int(i) => *i as usize,

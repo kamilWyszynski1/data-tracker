@@ -90,7 +90,7 @@ impl APIWrapper {
         )
         .persist_tokens_to_disk("tokencache.json")
         .build()
-        .await  
+        .await
         .unwrap();
 
         debug!("creating hub");
@@ -161,4 +161,27 @@ async fn read_response_body(res: Response<Body>) -> Result<String> {
             err.to_string(),
         )
     })
+}
+
+#[derive(Default)]
+pub struct StdoutAPI {}
+
+#[async_trait]
+impl API for StdoutAPI {
+    async fn write(&self, values: Vec<Vec<String>>, sheet_id: &str, range: &str) -> Result<()> {
+        println!("{:?} {} {}", values, sheet_id, range);
+        Ok(())
+    }
+}
+
+pub enum APIType {
+    STDOUT, // indicates API that only prints content.
+    SHEETS, // indicates API that writes data to google sheets.
+}
+
+pub async fn api_factory(api_type: APIType) -> Box<dyn API> {
+    match api_type {
+        APIType::STDOUT => Box::new(StdoutAPI::default()),
+        APIType::SHEETS => Box::new(APIWrapper::new_with_init().await),
+    }
 }

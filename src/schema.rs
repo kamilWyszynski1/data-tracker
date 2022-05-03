@@ -18,8 +18,7 @@ table! {
         with_timestamp -> Bool,
         timestamp_position -> Text,
         eval_forest -> Text,
-        url -> Text,
-        input_type -> Text,
+        input -> Text,
         status -> Text,
     }
 }

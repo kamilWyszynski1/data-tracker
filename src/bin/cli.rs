@@ -4,12 +4,8 @@ use std::{sync::Arc, time::Duration};
 use tokio::signal;
 use tokio::sync::Mutex;
 
-fn get_stats_response_to_str<'a>(gsr: &'a GetStatsResponse) -> Vec<&'a str> {
-    let mut v = vec![];
-    v.push(gsr.id.as_str());
-    v.push(gsr.name.as_str());
-    v.push(gsr.url.as_str());
-    v
+fn get_stats_response_to_str(gsr: &GetStatsResponse) -> Vec<&str> {
+    vec![gsr.id.as_str(), gsr.name.as_str(), gsr.input.as_str()]
 }
 
 use crossterm::{
@@ -86,7 +82,7 @@ impl App {
         }
         match self.state.selected() {
             Some(i) => self.picked = Some(i),
-            None => return,
+            None => (),
         };
     }
 }
@@ -179,19 +175,18 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
         .constraints([Constraint::Percentage(100)].as_ref())
         .split(f.size());
     let selected_style = Style::default().add_modifier(Modifier::REVERSED);
-    let t: Table;
 
-    match app.picked {
+    let t: Table = match app.picked {
         Some(i) => {
             let rows = vec![Row::new(vec![Cell::from(app.items[i].eval_forest.clone())])
-                .height(10 as u16)
+                .height(10_u16)
                 .bottom_margin(1)];
-            t = Table::new(rows)
+            Table::new(rows)
                 .header(create_headers_cells(&["definition"]))
                 .block(Block::default().borders(Borders::ALL).title("Table"))
                 .highlight_style(selected_style)
                 .highlight_symbol(">> ")
-                .widths(&[Constraint::Percentage(100)]);
+                .widths(&[Constraint::Percentage(100)])
         }
         None => {
             let rows = app.items.iter().map(|item| {
@@ -205,7 +200,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
                 let cells = items.iter().map(|c| Cell::from(*c));
                 Row::new(cells).height(height as u16).bottom_margin(1)
             });
-            t = Table::new(rows)
+            Table::new(rows)
                 .header(create_headers_cells(&["uuid", "name", "url"]))
                 .block(Block::default().borders(Borders::ALL).title("Table"))
                 .highlight_style(selected_style)
@@ -214,8 +209,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
                     Constraint::Percentage(20),
                     Constraint::Percentage(40),
                     Constraint::Percentage(40),
-                ]);
+                ])
         }
-    }
+    };
     f.render_stateful_widget(t, rects[0], &mut app.state);
 }

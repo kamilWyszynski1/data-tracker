@@ -271,9 +271,6 @@ mod test {
     #[allow(unused_imports)]
     use crate::core::task::{Direction, InputData, InputType, TrackingTask};
     use crate::error::types::Result;
-
-    use super::TaskInput;
-
     #[allow(dead_code)]
     async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))

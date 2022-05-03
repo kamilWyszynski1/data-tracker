@@ -163,13 +163,8 @@ async fn read_response_body(res: Response<Body>) -> Result<String> {
     })
 }
 
+#[derive(Default)]
 pub struct StdoutAPI {}
-
-impl Default for StdoutAPI {
-    fn default() -> Self {
-        StdoutAPI {}
-    }
-}
 
 #[async_trait]
 impl API for StdoutAPI {

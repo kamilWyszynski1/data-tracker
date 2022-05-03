@@ -33,7 +33,7 @@ impl PSQLConfig {
 /// Function wraps psql config and query into async function that will be run
 /// in order to retrieve data from postgresql.
 async fn psql_wrap(cfg: PSQLConfig, query: String) -> Result<InputData> {
-    Ok(tokio::task::spawn_blocking(move || -> Result<InputData> {
+    tokio::task::spawn_blocking(move || -> Result<InputData> {
         let mut client = Client::connect(cfg.to_conn_str().as_str(), NoTls).map_err(|err| {
             Error::new_internal(
                 String::from("psql_wrap"),
@@ -62,7 +62,7 @@ async fn psql_wrap(cfg: PSQLConfig, query: String) -> Result<InputData> {
             String::from("failed to await spawned blocked "),
             err.to_string(),
         )
-    })??)
+    })?
 }
 
 /// Creates getter for data from psql.

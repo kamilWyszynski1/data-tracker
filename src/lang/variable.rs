@@ -20,9 +20,7 @@ impl Variable {
         match td {
             InputData::String(s) => Variable::String(s.clone()),
             InputData::Json(j) => Variable::Json(j.clone()),
-            InputData::Vector(v) => {
-                Variable::Vector(v.iter().map(|id| Self::from_input_data(id)).collect())
-            }
+            InputData::Vector(v) => Variable::Vector(v.iter().map(Self::from_input_data).collect()),
         }
     }
 }

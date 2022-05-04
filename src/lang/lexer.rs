@@ -444,8 +444,8 @@ where
 }
 
 /// Function creates new engine and calls fire method for given Definition.
-pub fn evaluate_data(data: InputData, ef: &EvalForest) -> EvalResult<Variable> {
-    let mut e = Engine::new(Variable::from_input_data(&data));
+pub fn evaluate_data(data: &InputData, ef: &EvalForest) -> EvalResult<Variable> {
+    let mut e = Engine::new(Variable::from_input_data(data));
     e.fire(ef)?;
     Ok(e.get(String::from("OUT"))
         .ok_or_else(|| {

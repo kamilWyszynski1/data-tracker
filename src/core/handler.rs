@@ -1,4 +1,5 @@
 use super::manager::Command;
+use super::task::InputData;
 use super::task::TrackingTask;
 use super::types::Direction;
 use super::types::State;
@@ -13,6 +14,13 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
 
+/// Describes how TaskHandler is being run.
+pub enum HandlerKind {
+    Ticker,                                // runs periodically.
+    Triggered { ch: Receiver<InputData> }, // runs if something triggers handler.
+}
+
+/// Handles single TrackingTask.
 pub struct TaskHandler<A: API> {
     /// Task that is being handled by TaskHandler.
     task: TrackingTask,
@@ -26,13 +34,16 @@ pub struct TaskHandler<A: API> {
     state: Mutex<State>,
     /// Receives Command regarding running task.
     receiver: Receiver<Command>,
+    /// Type of TaskHandler.
+    kind: HandlerKind,
 }
 
 impl<A> TaskHandler<A>
 where
     A: API,
 {
-    pub fn new(
+    /// Creates new TaskHandler of Ticker kind.
+    pub fn new_ticker(
         task: TrackingTask,
         db: Db,
         shutdown: Shutdown,
@@ -46,9 +57,29 @@ where
             state: Mutex::new(task.status),
             receiver,
             task,
+            kind: HandlerKind::Ticker,
         }
     }
 
+    /// Creates new TaskHandler of Triggered kind.
+    pub fn new_triggered(
+        task: TrackingTask,
+        db: Db,
+        shutdown: Shutdown,
+        api: Arc<A>,
+        receiver: Receiver<Command>,
+        ch: Receiver<InputData>,
+    ) -> Self {
+        TaskHandler {
+            db,
+            shutdown,
+            api,
+            state: Mutex::new(task.status),
+            receiver,
+            task,
+            kind: HandlerKind::Triggered { ch },
+        }
+    }
     async fn apply(&mut self, cmd: Command) -> Result<()> {
         self.change_status(State::from_cmd(cmd)).await
     }
@@ -60,12 +91,30 @@ where
         self.db.update_task_status(self.task.id, status).await
     }
 
+    // async fn run_signal(&self) -> InputData {
+    //     match self.kind.clone() {
+    //         HandlerKind::Ticker => {
+    //             tokio::time::interval(self.task.interval).tick();
+    //             self.task.data().await.unwrap()
+    //         }
+    //         HandlerKind::Triggered { mut ch } => ch.recv().await.unwrap(),
+    //     }
+    // }
+
+    pub async fn start(&mut self) {
+        info!("handler starting with: {} task", self.task.info());
+
+        match &self.kind {
+            HandlerKind::Ticker => self.start_ticker().await,
+            HandlerKind::Triggered { mut ch } => self.start_triggered(&mut ch).await,
+        }
+    }
+
     /// Starts running task. It runs in loop till shutdown is run.
     ///
     /// Tasks are handled with given interval.
-    pub async fn start(&mut self) {
+    pub async fn start_ticker(&mut self) {
         let mut timer = tokio::time::interval(self.task.interval);
-        info!("handler starting with: {} task", self.task.info());
 
         while !self.shutdown.is_shutdown() {
             tokio::select! {
@@ -102,7 +151,64 @@ where
                             }
                         }
                         State::Running => {
-                            self.handle().await;
+                            let input_data = self.task.data().await.unwrap();
+                            info!("got from data_fn: {:?}", input_data);
+                            self.handle(&input_data).await;
+                        }
+                        State::Stopped => {
+                            info!("Task {} stopped", self.task.info());
+                        }
+                        State::Quit => {
+                            if let Err(err) = self.db.delete_task(self.task.id).await {
+                                error!("failed to delete task: {:?}", err);
+                            }
+                            info!("Task {} is quitting", self.task.info());
+                            return;
+                        }
+                    };
+                }
+            }
+        }
+    }
+
+    pub async fn start_triggered(&mut self, ch: &mut Receiver<InputData>) {
+        while !self.shutdown.is_shutdown() {
+            tokio::select! {
+                _ = self.shutdown.recv() => {
+                    info!("handler is shutting down");
+                    // If a shutdown signal is received, return from `start`.
+                    // This will result in the task terminating.
+                    return;
+                }
+                cmd = self.receiver.recv() => {
+                    info!("applying {:?} cmd for {} task", cmd, self.task.info());
+                    match cmd {
+                        None => {
+                            info!("receiver has been closed for {} task, returning", self.task.info());
+                            return;
+                        }
+                        Some(command) => {
+                            if let Err(err) = self.apply(command).await {
+                                error!("failed to apply command to task: {:?}", err)
+                            }
+                        }
+                    }
+                }
+                input_data = ch.recv() => {
+                    let input_data = input_data.unwrap();
+                    info!("received from channel: {:?}", input_data);
+
+                    let  mut state = self.state.lock().await;
+                    match *state{
+                        State::Created => {
+                            *state = State::Running; // start running task.
+                            if let Err(e) = self.db.update_task_status(self.task.id, State::Running).await{
+                                error!("failed to change status to Running: {:?}", e);
+                                return;
+                            }
+                        }
+                        State::Running => {
+                            self.handle(&input_data).await;
                         }
                         State::Stopped => {
                             info!("Task {} stopped", self.task.info());
@@ -121,13 +227,10 @@ where
     }
 
     /// Performs single handling of task.
-    async fn handle(&self) {
+    async fn handle(&self, input_data: &InputData) {
         info!("Handling task {}", self.task.info());
 
-        let result = self.task.data().await.unwrap();
-        info!("got from data_fn: {:?}", result);
-
-        let evaluated = evaluate_data(result, &self.task.eval_forest);
+        let evaluated = evaluate_data(input_data, &self.task.eval_forest);
         match evaluated {
             Ok(data) => {
                 info!("evaluated from engine: {:?}", &data);
@@ -305,6 +408,6 @@ mod tests {
 
         let (send, receiver) = channel::<Command>(1);
 
-        let th = TaskHandler::new(tt, db, sd, Arc::new(mock_api), receiver);
+        let th = TaskHandler::new_ticker(tt, db, sd, Arc::new(mock_api), receiver);
     }
 }

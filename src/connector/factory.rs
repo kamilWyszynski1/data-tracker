@@ -20,7 +20,10 @@ pub fn getter_from_task_input(input: &TaskInput) -> BoxFnThatReturnsAFuture {
             password,
             query,
             db,
-        } => psql::getter_from_psql(psql::PSQLConfig::new(host, port, user, password, db), query),
+        } => psql::getter_from_psql(
+            psql::PSQLConfig::new(host, port, user, password, db, None),
+            query,
+        ),
         TaskInput::None => empty_getter(),
     }
 }

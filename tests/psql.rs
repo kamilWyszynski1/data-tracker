@@ -1,7 +1,8 @@
 extern crate datatracker_rust;
 use datatracker_rust::connector::factory::getter_from_task_input;
+use datatracker_rust::connector::psql::{monitor_changes, PSQLConfig};
 use datatracker_rust::core::manager::TaskCommand;
-use datatracker_rust::core::task::{TaskInput, TrackingTask};
+use datatracker_rust::core::task::{InputData, TaskInput, TrackingTask};
 use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::core::types::Direction;
 use datatracker_rust::lang::engine::Definition;
@@ -85,4 +86,76 @@ async fn test_psql_connector() {
     tt_send.send(tt).await.unwrap();
 
     sleep(Duration::from_millis(10000)).await;
+}
+
+#[tokio::test]
+#[ignore = "this is an integration test"]
+async fn test_changes_monitor() {
+    env_logger::init();
+    let (sender, mut receiver) = channel::<InputData>(1);
+    debug!("hello");
+    tokio::task::spawn(async {
+        monitor_changes(
+            PSQLConfig::new(
+                String::from("localhost"),
+                5432,
+                String::from("postgres"),
+                String::from("password"),
+                String::from("test"),
+                Some(String::from("test_channel")),
+            ),
+            sender,
+        )
+        .await
+    });
+    debug!("hello2");
+    loop {
+        tokio::select! {
+            n = receiver.recv() => {
+                match n {
+                    Some(n) => {
+                        println!("{:?}", n);
+                        return;
+                    },
+                    None =>()
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "this is an integration test"]
+async fn test_changes_monitor_whole_flow() {
+    env_logger::init();
+    let (sender, mut receiver) = channel::<InputData>(1);
+    debug!("hello");
+    tokio::task::spawn(async {
+        monitor_changes(
+            PSQLConfig::new(
+                String::from("localhost"),
+                5432,
+                String::from("postgres"),
+                String::from("password"),
+                String::from("test"),
+                Some(String::from("test_channel")),
+            ),
+            sender,
+        )
+        .await
+    });
+    debug!("hello2");
+    loop {
+        tokio::select! {
+            n = receiver.recv() => {
+                match n {
+                    Some(n) => {
+                        println!("{:?}", n);
+                        return;
+                    },
+                    None =>()
+                }
+            }
+        }
+    }
 }

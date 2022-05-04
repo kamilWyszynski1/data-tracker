@@ -96,6 +96,9 @@ pub struct TrackingTask {
     #[derivative(PartialEq = "ignore")]
     pub data_fn: Arc<BoxFnThatReturnsAFuture>, // function that returns data to be written.
     pub callbacks: Option<Vec<CallbackFn>>,
+
+    #[derivative(PartialEq = "ignore")]
+    pub kind: TaskKind,
 }
 
 impl TrackingTask {
@@ -131,6 +134,7 @@ impl TrackingTask {
             eval_forest: EvalForest::default(),
             status: State::Created,
             input: TaskInput::default(),
+            kind: TaskKind::Ticker { interval },
         }
     }
 
@@ -144,6 +148,7 @@ impl TrackingTask {
         })?;
 
         let input = TaskInput::from_json(&tm.input)?;
+        let interval = Duration::from_secs(tm.interval_secs as u64);
 
         Ok(TrackingTask {
             id,
@@ -154,7 +159,7 @@ impl TrackingTask {
             starting_position: tm.position.clone(),
             sheet: tm.sheet.clone(),
             direction: tm.direction,
-            interval: Duration::from_secs(tm.interval_secs as u64),
+            interval,
             with_timestamp: true,
             timestamp_position: tm.timestamp_position,
             invocations: None,
@@ -162,6 +167,7 @@ impl TrackingTask {
             status: tm.status,
             callbacks: None,
             input,
+            kind: TaskKind::Ticker { interval },
         })
     }
 
@@ -263,6 +269,7 @@ impl TrackingTask {
             data_fn: Arc::new(getter_from_task_input(&tcr.input)),
             status: State::Created,
             input: tcr.input,
+            kind: TaskKind::Ticker { interval },
         })
     }
 }

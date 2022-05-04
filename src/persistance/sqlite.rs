@@ -211,6 +211,9 @@ mod tests {
             callbacks: None,
             status: State::Created,
             input: TaskInput::default(),
+            kind: TaskKind::Ticker {
+                interval: Duration::from_secs(1),
+            },
         };
 
         let mut client = SqliteClient::new(connection);
@@ -259,6 +262,9 @@ mod tests {
             input: TaskInput::default(),
             callbacks: None,
             status: State::Created,
+            kind: TaskKind::Ticker {
+                interval: Duration::from_secs(1),
+            },
         };
         let tt2 = TrackingTask {
             id,
@@ -277,6 +283,9 @@ mod tests {
             input: TaskInput::default(),
             callbacks: None,
             status: State::Running,
+            kind: TaskKind::Ticker {
+                interval: Duration::from_secs(1),
+            },
         };
         let tt3 = TrackingTask {
             id,
@@ -295,6 +304,9 @@ mod tests {
             input: TaskInput::default(),
             callbacks: None,
             status: State::Quit,
+            kind: TaskKind::Ticker {
+                interval: Duration::from_secs(1),
+            },
         };
 
         let mut client = SqliteClient::new(connection);

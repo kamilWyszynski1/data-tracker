@@ -123,7 +123,7 @@ where
             "start_handler_for_task - for {}:{} task",
             task.id, task.status
         );
-        let mut handler = TaskHandler::new_ticker(
+        let mut handler = TaskHandler::new(
             task.clone(),
             self.db.clone(),
             Shutdown::new(self.notify_shutdown.subscribe()),

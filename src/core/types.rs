@@ -6,8 +6,13 @@ use diesel::types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::io;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::Mutex;
 
 use super::manager::Command;
+use super::task::InputData;
 
 /// Supported types for task's input data.
 /// Should match with InputData.
@@ -230,4 +235,11 @@ where
             _ => return Err("replace me with a real error".into()),
         })
     }
+}
+
+#[derive(Debug, Derivative, Clone)]
+/// Describes how TrackingTask is being run.
+pub enum TaskKind {
+    Ticker { interval: Duration },
+    Triggered { ch: Arc<Mutex<Receiver<InputData>>> },
 }

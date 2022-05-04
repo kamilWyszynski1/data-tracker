@@ -3,6 +3,7 @@ use super::task::InputData;
 use super::task::TrackingTask;
 use super::types::Direction;
 use super::types::State;
+use crate::core::types::TaskKind;
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::evaluate_data;
 use crate::lang::variable::Variable;
@@ -11,14 +12,10 @@ use crate::shutdown::Shutdown;
 use crate::wrap::API;
 use log::info;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
-
-/// Describes how TaskHandler is being run.
-pub enum HandlerKind {
-    Ticker,                                // runs periodically.
-    Triggered { ch: Receiver<InputData> }, // runs if something triggers handler.
-}
+use tokio::sync::MutexGuard;
 
 /// Handles single TrackingTask.
 pub struct TaskHandler<A: API> {
@@ -34,8 +31,6 @@ pub struct TaskHandler<A: API> {
     state: Mutex<State>,
     /// Receives Command regarding running task.
     receiver: Receiver<Command>,
-    /// Type of TaskHandler.
-    kind: HandlerKind,
 }
 
 impl<A> TaskHandler<A>
@@ -43,7 +38,7 @@ where
     A: API,
 {
     /// Creates new TaskHandler of Ticker kind.
-    pub fn new_ticker(
+    pub fn new(
         task: TrackingTask,
         db: Db,
         shutdown: Shutdown,
@@ -57,29 +52,9 @@ where
             state: Mutex::new(task.status),
             receiver,
             task,
-            kind: HandlerKind::Ticker,
         }
     }
 
-    /// Creates new TaskHandler of Triggered kind.
-    pub fn new_triggered(
-        task: TrackingTask,
-        db: Db,
-        shutdown: Shutdown,
-        api: Arc<A>,
-        receiver: Receiver<Command>,
-        ch: Receiver<InputData>,
-    ) -> Self {
-        TaskHandler {
-            db,
-            shutdown,
-            api,
-            state: Mutex::new(task.status),
-            receiver,
-            task,
-            kind: HandlerKind::Triggered { ch },
-        }
-    }
     async fn apply(&mut self, cmd: Command) -> Result<()> {
         self.change_status(State::from_cmd(cmd)).await
     }
@@ -104,17 +79,17 @@ where
     pub async fn start(&mut self) {
         info!("handler starting with: {} task", self.task.info());
 
-        match &self.kind {
-            HandlerKind::Ticker => self.start_ticker().await,
-            HandlerKind::Triggered { mut ch } => self.start_triggered(&mut ch).await,
+        match self.task.kind.clone() {
+            TaskKind::Ticker { interval } => self.start_ticker(interval).await,
+            TaskKind::Triggered { ch } => self.start_triggered(ch.lock().await).await,
         }
     }
 
     /// Starts running task. It runs in loop till shutdown is run.
     ///
     /// Tasks are handled with given interval.
-    pub async fn start_ticker(&mut self) {
-        let mut timer = tokio::time::interval(self.task.interval);
+    pub async fn start_ticker(&mut self, interval: Duration) {
+        let mut timer = tokio::time::interval(interval);
 
         while !self.shutdown.is_shutdown() {
             tokio::select! {
@@ -171,7 +146,7 @@ where
         }
     }
 
-    pub async fn start_triggered(&mut self, ch: &mut Receiver<InputData>) {
+    pub async fn start_triggered(&mut self, mut ch: MutexGuard<'_, Receiver<InputData>>) {
         while !self.shutdown.is_shutdown() {
             tokio::select! {
                 _ = self.shutdown.recv() => {
@@ -397,6 +372,9 @@ mod tests {
             input: TaskInput::default(),
             callbacks: None,
             status: State::Created,
+            kind: TaskKind::Ticker {
+                interval: Duration::from_secs(1),
+            },
         };
 
         let mock_api = MockAPI::new();
@@ -408,6 +386,6 @@ mod tests {
 
         let (send, receiver) = channel::<Command>(1);
 
-        let th = TaskHandler::new_ticker(tt, db, sd, Arc::new(mock_api), receiver);
+        let th = TaskHandler::new(tt, db, sd, Arc::new(mock_api), receiver);
     }
 }

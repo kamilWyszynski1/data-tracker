@@ -123,7 +123,10 @@ where
                             if let Err(e) = self.db.update_task_status(self.task.id, State::Running).await{
                                 error!("failed to change status to Running: {:?}", e);
                                 return;
-                            }
+                            };
+                            let input_data = self.task.data().await.unwrap();
+                            info!("got from data_fn: {:?}", input_data);
+                            self.handle(&input_data).await;
                         }
                         State::Running => {
                             let input_data = self.task.data().await.unwrap();
@@ -174,6 +177,7 @@ where
                     info!("received from channel: {:?}", input_data);
 
                     let  mut state = self.state.lock().await;
+                    debug!("state: {}", state);
                     match *state{
                         State::Created => {
                             *state = State::Running; // start running task.
@@ -181,6 +185,7 @@ where
                                 error!("failed to change status to Running: {:?}", e);
                                 return;
                             }
+                            self.handle(&input_data).await;
                         }
                         State::Running => {
                             self.handle(&input_data).await;

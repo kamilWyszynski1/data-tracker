@@ -56,7 +56,7 @@ impl Default for TaskInput {
 }
 
 /// Enum for user's input data.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub enum InputData {
     String(String),
     Json(Value),
@@ -226,6 +226,11 @@ impl TrackingTask {
         self
     }
 
+    pub fn with_kind(mut self, kind: TaskKind) -> TrackingTask {
+        self.kind = kind;
+        self
+    }
+
     // runs task callbacks on result.
     pub fn run_callbacks(&self, result: Result<()>) {
         info!("running callbacks: {:?}", self.callbacks);
@@ -276,10 +281,9 @@ impl TrackingTask {
 
 mod test {
     #[allow(unused_imports)]
-    use crate::core::task::{Direction, InputData, InputType, TrackingTask};
+    use crate::core::task::{Direction, InputData, TaskInput, TrackingTask};
     use crate::error::types::Result;
 
-    use super::TaskInput;
     #[allow(dead_code)]
     async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))

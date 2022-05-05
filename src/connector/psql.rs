@@ -2,22 +2,21 @@ use std::sync::Arc;
 
 use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
 use crate::error::types::{Error, Result};
-use futures::{ready, stream, Sink, Stream, StreamExt};
-use futures::{FutureExt, TryStreamExt};
+use futures::{stream, StreamExt};
 use postgres::{Client, NoTls};
-use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::mpsc::Sender;
 use tokio_postgres::AsyncMessage;
 
 #[derive(Clone)]
 pub struct PSQLConfig {
-    host: String,
-    port: u16,
-    user: String,
-    password: String,
-    db: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub db: String,
 
     // fields for changes monitor.
-    channel_name: Option<String>,
+    pub channel_name: Option<String>,
 }
 
 impl PSQLConfig {
@@ -109,6 +108,7 @@ pub async fn monitor_changes(cfg: PSQLConfig, sender: Sender<InputData>) {
             debug!("message!");
             let msg = n.unwrap();
             if let AsyncMessage::Notification(notification) = msg {
+                debug!("notification: {:?}", notification);
                 sender
                     .send(InputData::String(notification.payload().to_string()))
                     .await

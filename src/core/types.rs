@@ -1,3 +1,7 @@
+use super::manager::Command;
+use super::task::InputData;
+use crate::error::types::{Error, Result};
+use crate::server::task::TaskKindRequest;
 use diesel::backend::Backend;
 use diesel::deserialize;
 use diesel::serialize::{self, Output};
@@ -10,9 +14,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
-
-use super::manager::Command;
-use super::task::InputData;
 
 /// Supported types for task's input data.
 /// Should match with InputData.
@@ -242,4 +243,34 @@ where
 pub enum TaskKind {
     Ticker { interval: Duration },
     Triggered { ch: Arc<Mutex<Receiver<InputData>>> },
+    Clicked { ch: Arc<Mutex<Receiver<()>>> }, // Clicked that will be triggered by e.g. api call or clicked button.
+}
+
+impl TaskKind {
+    pub fn from_task_kind_request(tkr: &TaskKindRequest) -> Self {
+        match tkr {
+            TaskKindRequest::Ticker { interval_secs } => Self::Ticker {
+                interval: Duration::from_secs(*interval_secs),
+            },
+            TaskKindRequest::Triggered(_) => todo!(),
+            TaskKindRequest::Clicked => todo!(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum TaskHook {
+    PSQL {
+        host: String,
+        port: u16,
+        user: String,
+        password: String,
+        db: String,
+        channel: String, // psql channel that will be listened.
+    },
+    Kafka {
+        host: String,
+        port: u16,
+        topic: String,
+    },
 }

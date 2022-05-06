@@ -11,6 +11,7 @@ use datatracker_rust::lang::engine::Definition;
 use datatracker_rust::lang::lexer::EvalForest;
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
 use datatracker_rust::persistance::interface::Db;
+use datatracker_rust::server::task::TaskKindRequest;
 use datatracker_rust::wrap::TestAPI;
 use postgres::NoTls;
 use tokio::sync::mpsc::channel;
@@ -92,8 +93,8 @@ async fn test_psql_connector() {
         empty_string,
         String::from("A1"),
         Direction::Horizontal,
-        getter_from_task_input(&input),
-        std::time::Duration::from_secs(1),
+        getter_from_task_input(&input).and_then(|f| Some(f)),
+        TaskKindRequest::Ticker { interval_secs: 1 },
     )
     .with_eval_forest(ef)
     .with_input(input);
@@ -207,8 +208,8 @@ async fn test_changes_monitor_whole_flow() {
         empty_string,
         String::from("A1"),
         Direction::Horizontal,
-        getter_from_task_input(&TaskInput::None),
-        std::time::Duration::from_secs(1),
+        None,
+        TaskKindRequest::Ticker { interval_secs: 1 },
     )
     .with_eval_forest(ef)
     .with_kind(TaskKind::Triggered {

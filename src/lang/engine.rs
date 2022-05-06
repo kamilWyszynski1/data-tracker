@@ -3,7 +3,7 @@ use super::variable::Variable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Definition {
     pub steps: Vec<String>,
 }

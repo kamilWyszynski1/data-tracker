@@ -12,12 +12,12 @@ pub struct TaskModel {
     pub position: String,       // starting position of data in the spreadsheet. A1 notation.
     pub sheet: String,          // exact sheet of spreadsheet. Default is empty, first sheet.
     pub direction: Direction,
-    pub interval_secs: i32,   // interval between data writes.
     pub with_timestamp: bool, // whether to write timestamp.
     pub timestamp_position: TimestampPosition,
-    pub eval_forest: String, // definition of handling data.
-    pub input: String,       // json of input definition.
+    pub eval_forest: String,   // definition of handling data.
+    pub input: Option<String>, // json of input definition.
     pub status: State,
+    pub kind: String, // json of TaskKind definition.
 }
 
 impl TaskModel {
@@ -29,13 +29,13 @@ impl TaskModel {
             sheet: tt.sheet.clone(),
             position: tt.starting_position.clone(),
             direction: tt.direction,
-            interval_secs: tt.interval.as_secs() as i32,
             description: tt.description.as_ref().cloned().unwrap_or_default(),
             status: tt.status,
             with_timestamp: tt.with_timestamp,
             timestamp_position: tt.timestamp_position,
             eval_forest: tt.eval_forest.to_string().unwrap_or_default(),
-            input: tt.input.to_json(),
+            input: tt.input.as_ref().and_then(|f| Some(f.to_json())),
+            kind: tt.kind_request.to_json(),
         }
     }
 }

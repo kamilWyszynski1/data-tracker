@@ -178,6 +178,10 @@ async fn run_signal(task: &TrackingTask) -> InputData {
             timer.tick().await;
             task.data().await.unwrap()
         }
+        TaskKind::Clicked { ch } => {
+            ch.lock().await.recv().await.unwrap(); // wait for an click/call event.
+            task.data().await.unwrap() // return configured data.
+        }
     }
 }
 
@@ -256,11 +260,12 @@ mod tests {
     use super::TaskHandler;
     use crate::core::handler::run_signal;
     use crate::core::manager::Command;
-    use crate::core::task::{InputData, TrackingTask};
+    use crate::core::task::{BoxFnThatReturnsAFuture, InputData, TrackingTask};
     use crate::core::types::{Direction, State, TaskKind};
     use crate::error::types::Result;
     use crate::persistance::in_memory::InMemoryPersistance;
     use crate::persistance::interface::Db;
+    use crate::server::task::TaskKindRequest;
     use crate::shutdown::Shutdown;
     use crate::wrap::TestAPI;
     use std::sync::Arc;
@@ -272,6 +277,10 @@ mod tests {
         Ok(InputData::String(String::from("test")))
     }
 
+    fn data_fn() -> Option<BoxFnThatReturnsAFuture> {
+        Some(Box::new(move || Box::pin(test_get_data_fn())))
+    }
+
     #[tokio::test]
     async fn test_run_signal_ticker() {
         let tt = TrackingTask::new(
@@ -279,8 +288,8 @@ mod tests {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_millis(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         );
         let id = run_signal(&tt).await;
         assert_eq!(id, InputData::String(String::from("test")))
@@ -295,8 +304,8 @@ mod tests {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_millis(1),
+            None,
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_kind(TaskKind::Triggered {
             ch: Arc::new(Mutex::new(receiver)),
@@ -315,6 +324,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_run_signal_clicked() {
+        let (sender, receiver) = mpsc::channel(1);
+
+        let tt = TrackingTask::new(
+            "spreadsheet_id".to_string(),
+            "".to_string(),
+            "A1:B1".to_string(),
+            Direction::Vertical,
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
+        )
+        .with_kind(TaskKind::Clicked {
+            ch: Arc::new(Mutex::new(receiver)),
+        });
+        sender.send(()).await.unwrap();
+
+        let id = run_signal(&tt).await;
+        assert_eq!(id, InputData::String(String::from("test")))
+    }
+
+    #[tokio::test]
     async fn test_handler() {
         env_logger::try_init();
 
@@ -323,8 +353,8 @@ mod tests {
             "".to_string(),
             "A1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_millis(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         );
 
         let db = InMemoryPersistance::new();
@@ -365,8 +395,8 @@ mod tests {
             "".to_string(),
             "A1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_millis(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_kind(TaskKind::Triggered {
             ch: Arc::new(Mutex::new(receiver)),
@@ -416,8 +446,8 @@ mod tests {
             "".to_string(),
             "A1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            Duration::from_millis(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_kind(TaskKind::Triggered {
             ch: Arc::new(Mutex::new(receiver)),

@@ -137,6 +137,7 @@ mod tests {
     use crate::core::task::*;
     use crate::core::tracker::Tracker;
     use crate::error::types::{Error, Result};
+    use crate::server::task::TaskKindRequest;
     use crate::wrap::{MockAPI, API};
     use async_trait::async_trait; // crate for async traits.
 
@@ -171,6 +172,10 @@ mod tests {
     use crate::persistance::interface::{Db, MockPersistance};
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
+
+    fn data_fn() -> Option<BoxFnThatReturnsAFuture> {
+        Some(Box::new(move || Box::pin(test_get_data_fn())))
+    }
 
     #[tokio::test]
     #[timeout(10000)]
@@ -213,8 +218,8 @@ mod tests {
             "".to_string(),
             "A4".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST4".to_string())
         .with_invocations(1);
@@ -223,8 +228,8 @@ mod tests {
             "".to_string(),
             "A5".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST5".to_string())
         .with_callback(c(tx))
@@ -280,8 +285,8 @@ mod tests {
             "".to_string(),
             "A4".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST4".to_string());
         t1.status = State::Running;
@@ -291,8 +296,8 @@ mod tests {
             "".to_string(),
             "A5".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST5".to_string())
         .with_invocations(1);

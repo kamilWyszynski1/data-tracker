@@ -14,12 +14,12 @@ table! {
         position -> Text,
         sheet -> Text,
         direction -> Text,
-        interval_secs -> Integer,
         with_timestamp -> Bool,
         timestamp_position -> Text,
         eval_forest -> Text,
-        input -> Text,
+        input -> Nullable<Text>,
         status -> Text,
+        kind -> Text,
     }
 }
 

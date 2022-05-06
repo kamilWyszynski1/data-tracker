@@ -161,6 +161,7 @@ mod tests {
     use crate::lang::engine::Definition;
     use crate::lang::lexer::EvalForest;
     use crate::persistance::interface::Persistance;
+    use crate::server::task::TaskKindRequest;
     use diesel::{Connection, SqliteConnection};
     use diesel_migrations::embed_migrations;
     use std::fs::{self, File};
@@ -198,22 +199,22 @@ mod tests {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
             direction: Direction::Vertical,
-            interval: Duration::from_secs(1),
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest,
             callbacks: None,
             status: State::Created,
-            input: TaskInput::default(),
+            input: None,
             kind: TaskKind::Ticker {
                 interval: Duration::from_secs(1),
             },
+            kind_request: TaskKindRequest::Ticker { interval_secs: 1 },
         };
 
         let mut client = SqliteClient::new(connection);
@@ -245,68 +246,69 @@ mod tests {
         let eval_forest = EvalForest::default();
 
         let id = Uuid::parse_str("a54a0fb9-25c9-4f73-ad82-0b7f30ca1ab6").unwrap();
+        let kind_request = TaskKindRequest::Ticker { interval_secs: 1 };
         let tt = TrackingTask {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
             direction: Direction::Vertical,
-            interval: Duration::from_secs(1),
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest: eval_forest.clone(),
-            input: TaskInput::default(),
+            input: None,
             callbacks: None,
             status: State::Created,
             kind: TaskKind::Ticker {
                 interval: Duration::from_secs(1),
             },
+            kind_request: kind_request.clone(),
         };
         let tt2 = TrackingTask {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
             direction: Direction::Vertical,
-            interval: Duration::from_secs(1),
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest: eval_forest.clone(),
-            input: TaskInput::default(),
+            input: None,
             callbacks: None,
             status: State::Running,
             kind: TaskKind::Ticker {
                 interval: Duration::from_secs(1),
             },
+            kind_request: kind_request.clone(),
         };
         let tt3 = TrackingTask {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
+            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
             direction: Direction::Vertical,
-            interval: Duration::from_secs(1),
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest,
-            input: TaskInput::default(),
+            input: None,
             callbacks: None,
             status: State::Quit,
             kind: TaskKind::Ticker {
                 interval: Duration::from_secs(1),
             },
+            kind_request,
         };
 
         let mut client = SqliteClient::new(connection);

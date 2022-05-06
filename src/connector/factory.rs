@@ -1,18 +1,10 @@
 use super::*;
-use crate::core::task::{BoxFnThatReturnsAFuture, InputData, TaskInput};
-use crate::error::types::Result;
+use crate::core::task::{BoxFnThatReturnsAFuture, TaskInput};
 
-fn empty_getter() -> BoxFnThatReturnsAFuture {
-    async fn empty() -> Result<InputData> {
-        Ok(InputData::String(String::from("")))
-    }
-    Box::new(move || Box::pin(empty()))
-}
-
-pub fn getter_from_task_input(input: &TaskInput) -> BoxFnThatReturnsAFuture {
+pub fn getter_from_task_input(input: &TaskInput) -> Option<BoxFnThatReturnsAFuture> {
     match input.clone() {
-        TaskInput::String { value } => string::getter_from_string(value),
-        TaskInput::HTTP { url, input_type } => http::getter_from_url(&url, input_type),
+        TaskInput::String { value } => Some(string::getter_from_string(value)),
+        TaskInput::HTTP { url, input_type } => Some(http::getter_from_url(&url, input_type)),
         TaskInput::PSQL {
             host,
             port,
@@ -20,10 +12,10 @@ pub fn getter_from_task_input(input: &TaskInput) -> BoxFnThatReturnsAFuture {
             password,
             query,
             db,
-        } => psql::getter_from_psql(
+        } => Some(psql::getter_from_psql(
             psql::PSQLConfig::new(host, port, user, password, db, None),
             query,
-        ),
-        TaskInput::None => empty_getter(),
+        )),
+        TaskInput::None => None,
     }
 }

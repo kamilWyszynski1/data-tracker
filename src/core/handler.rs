@@ -13,7 +13,6 @@ use crate::wrap::API;
 use log::info;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::Mutex;
 
 /// Handles single TrackingTask.
 pub struct TaskHandler<A: API> {

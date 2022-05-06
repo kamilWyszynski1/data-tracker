@@ -95,10 +95,12 @@ impl APIWrapper {
         .unwrap();
 
         debug!("creating hub");
-        let client = Sheets::new(
-            hyper::Client::builder().build(hyper_rustls::HttpsConnector::with_native_roots()),
-            auth,
-        );
+        let https = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .https_only()
+            .enable_http1()
+            .build();
+        let client = Sheets::new(hyper::Client::builder().build(https), auth);
         APIWrapper { client }
     }
 

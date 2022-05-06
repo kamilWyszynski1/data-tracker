@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 /// Handles single TrackingTask.
 pub struct TaskHandler<A: API> {
     /// Task that is being handled by TaskHandler.
-    task: TrackingTask,
+    pub task: TrackingTask,
     /// Shared persistance layer to handle task.
     db: Db,
     /// Shared API for handling task.
@@ -26,7 +26,7 @@ pub struct TaskHandler<A: API> {
     /// Indicates whether or not server was shutdown.
     shutdown: Shutdown,
     /// State of currently handled task.
-    state: Mutex<State>,
+    // state: Mutex<State>,
     /// Receives Command regarding running task.
     receiver: Receiver<Command>,
 }
@@ -47,7 +47,6 @@ where
             db,
             shutdown,
             api,
-            state: Mutex::new(task.status),
             receiver,
             task,
         }
@@ -58,9 +57,7 @@ where
     }
 
     async fn change_status(&mut self, status: State) -> Result<()> {
-        let mut state = self.state.lock().await;
-        *state = status;
-
+        self.task.status = status;
         self.db.update_task_status(self.task.id, status).await
     }
 
@@ -93,12 +90,9 @@ where
                 }
                 id = run_signal(&self.task) => {
                     info!("got data from run_signal: {:?}", id);
-
-                    let  mut state = self.state.lock().await;
-                    match *state{
+                    match self.task.status{
                         State::Created => {
-                            *state = State::Running; // start running task.
-                            if let Err(e) = self.db.update_task_status(self.task.id, State::Running).await{
+                            if let Err(e) = self.change_status(State::Running).await{
                                 error!("failed to change status to Running: {:?}", e);
                                 return;
                             };
@@ -429,6 +423,7 @@ mod tests {
         .with_kind(TaskKind::Triggered {
             ch: Arc::new(Mutex::new(receiver)),
         });
+        let id = tt.id;
 
         let mut db = Db::new(Box::new(InMemoryPersistance::new()));
         let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
@@ -438,21 +433,28 @@ mod tests {
         let (cmd_sender, cmd_receiver) = mpsc::channel(1);
 
         // TODO: write task to DB on TaskHandler start.
-        let mut handler = TaskHandler::new(tt.clone(), db.clone(), shutdown, api, cmd_receiver);
+        let mut handler = TaskHandler::new(tt, db.clone(), shutdown, api, cmd_receiver);
 
         tokio::task::spawn(async move { handler.start().await });
 
         cmd_sender.send(Command::Stop).await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(db.read_task(tt.id).await.unwrap().status, State::Stopped);
+        assert_eq!(db.read_task(id).await.unwrap().status, State::Stopped);
 
         cmd_sender.send(Command::Resume).await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(db.read_task(tt.id).await.unwrap().status, State::Running);
+        assert_eq!(db.read_task(id).await.unwrap().status, State::Running);
 
         cmd_sender.send(Command::Delete).await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(db.read_task(tt.id).await.unwrap().status, State::Quit);
+        assert_eq!(db.read_task(id).await.unwrap().status, State::Quit);
+
+        sender
+            .send(InputData::String(String::from("test")))
+            .await
+            .unwrap(); // task should be deleted from db.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(db.read_task(id).await.is_err());
 
         drop(shutdown_sender);
         drop(sender);

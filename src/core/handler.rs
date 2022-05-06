@@ -12,10 +12,8 @@ use crate::shutdown::Shutdown;
 use crate::wrap::API;
 use log::info;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
-use tokio::sync::MutexGuard;
 
 /// Handles single TrackingTask.
 pub struct TaskHandler<A: API> {
@@ -66,31 +64,11 @@ where
         self.db.update_task_status(self.task.id, status).await
     }
 
-    // async fn run_signal(&self) -> InputData {
-    //     match self.kind.clone() {
-    //         HandlerKind::Ticker => {
-    //             tokio::time::interval(self.task.interval).tick();
-    //             self.task.data().await.unwrap()
-    //         }
-    //         HandlerKind::Triggered { mut ch } => ch.recv().await.unwrap(),
-    //     }
-    // }
-
     pub async fn start(&mut self) {
-        info!("handler starting with: {} task", self.task.info());
-
-        match self.task.kind.clone() {
-            TaskKind::Ticker { interval } => self.start_ticker(interval).await,
-            TaskKind::Triggered { ch } => self.start_triggered(ch.lock().await).await,
+        if self.task.status == State::Created {
+            debug!("saving task on receive: {:?}", self.task);
+            self.db.save_task(&self.task).await.unwrap();
         }
-    }
-
-    /// Starts running task. It runs in loop till shutdown is run.
-    ///
-    /// Tasks are handled with given interval.
-    pub async fn start_ticker(&mut self, interval: Duration) {
-        let mut timer = tokio::time::interval(interval);
-
         while !self.shutdown.is_shutdown() {
             tokio::select! {
                 _ = self.shutdown.recv() => {
@@ -113,8 +91,8 @@ where
                         }
                     }
                 }
-                _ = timer.tick() => {
-                    info!("tick");
+                id = run_signal(&self.task) => {
+                    info!("got data from run_signal: {:?}", id);
 
                     let  mut state = self.state.lock().await;
                     match *state{
@@ -124,71 +102,10 @@ where
                                 error!("failed to change status to Running: {:?}", e);
                                 return;
                             };
-                            let input_data = self.task.data().await.unwrap();
-                            info!("got from data_fn: {:?}", input_data);
-                            self.handle(&input_data).await;
+                            self.handle(&id).await;
                         }
                         State::Running => {
-                            let input_data = self.task.data().await.unwrap();
-                            info!("got from data_fn: {:?}", input_data);
-                            self.handle(&input_data).await;
-                        }
-                        State::Stopped => {
-                            info!("Task {} stopped", self.task.info());
-                        }
-                        State::Quit => {
-                            if let Err(err) = self.db.delete_task(self.task.id).await {
-                                error!("failed to delete task: {:?}", err);
-                            }
-                            info!("Task {} is quitting", self.task.info());
-                            return;
-                        }
-                    };
-                }
-            }
-        }
-    }
-
-    pub async fn start_triggered(&mut self, mut ch: MutexGuard<'_, Receiver<InputData>>) {
-        while !self.shutdown.is_shutdown() {
-            tokio::select! {
-                _ = self.shutdown.recv() => {
-                    info!("handler is shutting down");
-                    // If a shutdown signal is received, return from `start`.
-                    // This will result in the task terminating.
-                    return;
-                }
-                cmd = self.receiver.recv() => {
-                    info!("applying {:?} cmd for {} task", cmd, self.task.info());
-                    match cmd {
-                        None => {
-                            info!("receiver has been closed for {} task, returning", self.task.info());
-                            return;
-                        }
-                        Some(command) => {
-                            if let Err(err) = self.apply(command).await {
-                                error!("failed to apply command to task: {:?}", err)
-                            }
-                        }
-                    }
-                }
-                input_data = ch.recv() => {
-                    let input_data = input_data.unwrap();
-                    info!("received from channel: {:?}", input_data);
-
-                    let  mut state = self.state.lock().await;
-                    debug!("state: {}", state);
-                    match *state{
-                        State::Created => {
-                            *state = State::Running; // start running task.
-                            if let Err(e) = self.db.update_task_status(self.task.id, State::Running).await{
-                                error!("failed to change status to Running: {:?}", e);
-                                return;
-                            }
-                            self.handle(&input_data).await;
-                        }
-                        State::Running => {
-                            self.handle(&input_data).await;
+                            self.handle(&id).await;
                         }
                         State::Stopped => {
                             info!("Task {} stopped", self.task.info());
@@ -219,7 +136,7 @@ where
 
                 let last_place = self.db.get(&self.task.id).await.unwrap_or(0);
                 let data_len = data.len() as u32;
-                info!("last_place: {}, data_len: {}", last_place, data_len);
+                debug!("last_place: {}, data_len: {}", last_place, data_len);
 
                 let result = self
                     .api
@@ -236,12 +153,12 @@ where
                     )
                     .await;
 
-                info!("saving to db");
+                debug!("saving to db");
                 if let Err(err) = self.db.save(self.task.id, data_len + last_place).await {
-                    info!("save failed");
+                    debug!("save failed");
                     self.task.run_callbacks(Err(err));
                 } else {
-                    info!("save successful");
+                    debug!("save successful");
                     self.task.run_callbacks(result);
                 }
             }
@@ -256,6 +173,17 @@ where
         }
         if self.task.invocations.is_some() {
             self.task.invocations.map(|i| i - 1);
+        }
+    }
+}
+
+async fn run_signal(task: &TrackingTask) -> InputData {
+    match task.kind.clone() {
+        TaskKind::Triggered { ch } => ch.lock().await.recv().await.unwrap(),
+        TaskKind::Ticker { interval } => {
+            let mut timer = tokio::time::interval(interval);
+            timer.tick().await;
+            task.data().await.unwrap()
         }
     }
 }
@@ -319,6 +247,7 @@ fn create_range(
     if !sheet.is_empty() {
         range = format!("{}!{}", sheet, range);
     }
+    debug!("range: {:?}", range);
     range
 }
 
@@ -331,66 +260,201 @@ fn add_str(s: &str, increment: u32) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::TaskHandler;
+    use crate::core::handler::run_signal;
     use crate::core::manager::Command;
-    use crate::core::task::{InputData, TaskInput, TrackingTask};
-    use crate::core::types::*;
+    use crate::core::task::{InputData, TrackingTask};
+    use crate::core::types::{Direction, State, TaskKind};
     use crate::error::types::Result;
-    use crate::lang::engine::Definition;
-    use crate::lang::lexer::EvalForest;
-    use crate::persistance::interface::{Db, MockPersistance};
+    use crate::persistance::in_memory::InMemoryPersistance;
+    use crate::persistance::interface::Db;
     use crate::shutdown::Shutdown;
-    use crate::wrap::MockAPI;
+    use crate::wrap::TestAPI;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::broadcast;
-    use tokio::sync::mpsc::{channel, Receiver, Sender};
-
-    use uuid::Uuid;
-
-    use super::TaskHandler;
+    use tokio::select;
+    use tokio::sync::{broadcast, mpsc, Mutex};
 
     async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
     }
-    fn test_run() {
-        let eval_forest = EvalForest::from_definition(&Definition::new(vec![
-            String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
-            String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
-            String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
-        ]));
 
-        let id = Uuid::parse_str("a54a0fb9-25c9-4f73-ad82-0b7f30ca1ab6").unwrap();
-        let tt = TrackingTask {
+    #[tokio::test]
+    async fn test_run_signal_ticker() {
+        let tt = TrackingTask::new(
+            "spreadsheet_id".to_string(),
+            "".to_string(),
+            "A1:B1".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_millis(1),
+        );
+        let id = run_signal(&tt).await;
+        assert_eq!(id, InputData::String(String::from("test")))
+    }
+
+    #[tokio::test]
+    async fn test_run_signal_triggered() {
+        let (sender, receiver) = mpsc::channel(1);
+
+        let tt = TrackingTask::new(
+            "spreadsheet_id".to_string(),
+            "".to_string(),
+            "A1:B1".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_millis(1),
+        )
+        .with_kind(TaskKind::Triggered {
+            ch: Arc::new(Mutex::new(receiver)),
+        });
+        sender
+            .send(InputData::Vector(vec![InputData::String(String::from(
+                "triggered",
+            ))]))
+            .await
+            .unwrap();
+        let id = run_signal(&tt).await;
+        assert_eq!(
             id,
-            name: Some(String::from("name")),
-            description: Some(String::from("description")),
-            data_fn: Arc::new(Box::new(move || Box::pin(test_get_data_fn()))),
-            spreadsheet_id: String::from("spreadsheet_id"),
-            starting_position: String::from("starting_position"),
-            sheet: String::from("sheet"),
-            direction: Direction::Vertical,
-            interval: Duration::from_secs(1),
-            with_timestamp: true,
-            timestamp_position: TimestampPosition::Before,
-            invocations: Some(1),
-            eval_forest,
-            input: TaskInput::default(),
-            callbacks: None,
-            status: State::Created,
-            kind: TaskKind::Ticker {
-                interval: Duration::from_secs(1),
-            },
-        };
+            InputData::Vector(vec![InputData::String(String::from("triggered"))])
+        )
+    }
 
-        let mock_api = MockAPI::new();
-        let mock_per = MockPersistance::new();
-        let db = Db::new(Box::new(mock_per));
+    #[tokio::test]
+    async fn test_handler() {
+        env_logger::try_init();
 
-        let (shutdown_notify, shutdown) = broadcast::channel(1);
-        let sd = Shutdown::new(shutdown);
+        let tt = TrackingTask::new(
+            "spreadsheet_id".to_string(),
+            "".to_string(),
+            "A1".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_millis(1),
+        );
 
-        let (send, receiver) = channel::<Command>(1);
+        let db = InMemoryPersistance::new();
+        let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
+        let shutdown = Shutdown::new(shutdown_receiver);
+        let (api, mut ch) = TestAPI::new();
+        let api = Arc::new(api);
+        let (cmd_sender, cmd_receiver) = mpsc::channel(1);
+        let mut handler = TaskHandler::new(tt, Db::new(Box::new(db)), shutdown, api, cmd_receiver);
 
-        let th = TaskHandler::new(tt, db, sd, Arc::new(mock_api), receiver);
+        tokio::task::spawn(async move { handler.start().await });
+
+        loop {
+            select! {
+                result = ch.recv() => {
+                    match result {
+                        Some(result) => {
+                            assert_eq!(result, vec![vec![String::from(r#"String("test")"#)]]);
+                            break;
+                        },
+                        None => (),
+                    }
+                }
+            }
+        }
+        drop(shutdown_sender);
+        drop(cmd_sender);
+    }
+
+    #[tokio::test]
+    async fn test_handler_triggered() {
+        env_logger::try_init();
+
+        let (sender, receiver) = mpsc::channel(1);
+
+        let tt = TrackingTask::new(
+            "spreadsheet_id".to_string(),
+            "".to_string(),
+            "A1".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            std::time::Duration::from_millis(1),
+        )
+        .with_kind(TaskKind::Triggered {
+            ch: Arc::new(Mutex::new(receiver)),
+        });
+
+        let db = InMemoryPersistance::new();
+        let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
+        let shutdown = Shutdown::new(shutdown_receiver);
+        let (api, mut ch) = TestAPI::new();
+        let api = Arc::new(api);
+        let (cmd_sender, cmd_receiver) = mpsc::channel(1);
+        let mut handler = TaskHandler::new(tt, Db::new(Box::new(db)), shutdown, api, cmd_receiver);
+
+        tokio::task::spawn(async move { handler.start().await });
+        sender
+            .send(InputData::Vector(vec![InputData::String(String::from(
+                "triggered",
+            ))]))
+            .await
+            .unwrap();
+
+        loop {
+            select! {
+                result = ch.recv() => {
+                    match result {
+                        Some(result) => {
+                            assert_eq!(result, vec![vec![String::from(r#"Vector([String("triggered")])"#)]]);
+                            break;
+                        },
+                        None => (),
+                    }
+                }
+            }
+        }
+        drop(shutdown_sender);
+        drop(cmd_sender);
+    }
+
+    #[tokio::test]
+    async fn test_handler_command() {
+        env_logger::try_init();
+
+        let (sender, receiver) = mpsc::channel(1);
+
+        let tt = TrackingTask::new(
+            "spreadsheet_id".to_string(),
+            "".to_string(),
+            "A1".to_string(),
+            Direction::Vertical,
+            Box::new(move || Box::pin(test_get_data_fn())),
+            Duration::from_millis(1),
+        )
+        .with_kind(TaskKind::Triggered {
+            ch: Arc::new(Mutex::new(receiver)),
+        });
+
+        let mut db = Db::new(Box::new(InMemoryPersistance::new()));
+        let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
+        let shutdown = Shutdown::new(shutdown_receiver);
+        let (api, _) = TestAPI::new();
+        let api = Arc::new(api);
+        let (cmd_sender, cmd_receiver) = mpsc::channel(1);
+
+        // TODO: write task to DB on TaskHandler start.
+        let mut handler = TaskHandler::new(tt.clone(), db.clone(), shutdown, api, cmd_receiver);
+
+        tokio::task::spawn(async move { handler.start().await });
+
+        cmd_sender.send(Command::Stop).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(db.read_task(tt.id).await.unwrap().status, State::Stopped);
+
+        cmd_sender.send(Command::Resume).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(db.read_task(tt.id).await.unwrap().status, State::Running);
+
+        cmd_sender.send(Command::Delete).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(db.read_task(tt.id).await.unwrap().status, State::Quit);
+
+        drop(shutdown_sender);
+        drop(sender);
     }
 }

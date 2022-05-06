@@ -82,9 +82,7 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
-                    if let Err(e) = self.receive_task(&task, &mut spawned).await {
-                        error!("{:?}", e);
-                    }
+                    self.start_handler_for_task(&task, &mut spawned).await
                 }
                 Some(task_cmd) = self.task_command_channel.recv() => {
                     self.manager.apply(task_cmd.id, task_cmd.cmd).await;
@@ -96,21 +94,6 @@ where
             info!("awaiting {} spawned", i);
             s.await.unwrap();
         }
-    }
-
-    /// Gets task, creates new TaskHandler and pushes it to spawned handlers.
-    /// TaskHandler will start its work waiting for shutdown message.
-    async fn receive_task(
-        &mut self,
-        task: &TrackingTask,
-        spawned: &mut Vec<JoinHandle<()>>,
-    ) -> Result<()> {
-        if task.status == State::Created {
-            debug!("saving task on receive: {:?}", task);
-            self.db.save_task(task).await?;
-        }
-        self.start_handler_for_task(task, spawned).await;
-        Ok(())
     }
 
     /// Creates new TaskHandler for given task and pushes it to vector of handlers.

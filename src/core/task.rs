@@ -288,6 +288,7 @@ mod test {
     async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
     }
+    
     #[test]
     fn callback_test() {
         let mut tt = TrackingTask::new(

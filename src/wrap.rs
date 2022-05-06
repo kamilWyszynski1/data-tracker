@@ -170,7 +170,7 @@ pub struct StdoutAPI {}
 #[async_trait]
 impl API for StdoutAPI {
     async fn write(&self, values: Vec<Vec<String>>, sheet_id: &str, range: &str) -> Result<()> {
-        println!("{:?} {} {}", values, sheet_id, range);
+        info!("{:?} {} {}", values, sheet_id, range);
         Ok(())
     }
 }

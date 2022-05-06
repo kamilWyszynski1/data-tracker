@@ -10,7 +10,7 @@ use uuid::Uuid;
 // InMemoryPersistance implements Persistance for in memory hash map.
 pub struct InMemoryPersistance {
     data: HashMap<Uuid, u32>,
-    tasks: HashMap<Uuid, TrackingTask>,
+    pub tasks: HashMap<Uuid, TrackingTask>,
 }
 
 impl InMemoryPersistance {

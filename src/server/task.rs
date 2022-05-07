@@ -15,7 +15,7 @@ use tokio::sync::mpsc::Sender;
 // Will be translated into [`core::types::TaskKind`];
 pub enum TaskKindRequest {
     Ticker { interval_secs: u64 }, // task with ticker.
-    Triggered(TaskHook),
+    Triggered(Hook),
     Clicked, // creation should return url that can trigger action.
 }
 
@@ -98,7 +98,7 @@ pub async fn create(
 #[cfg(test)]
 mod tests {
     use crate::core::task::TaskInput;
-    use crate::core::types::TaskHook;
+    use crate::core::types::Hook;
     use crate::server::task::TaskKindRequest;
     use crate::{
         core::types::Direction, lang::engine::Definition, server::task::TaskCreateRequest,
@@ -260,7 +260,7 @@ mod tests {
                         String::from("DEFINE(OUT, GET(var))"),
                     ]),
                     input: None,
-                    kind_request: TaskKindRequest::Triggered(TaskHook::PSQL{
+                    kind_request: TaskKindRequest::Triggered(Hook::PSQL{
                         host: String::from("host"),
                         port: 5432,
                         user: String::from("user"),

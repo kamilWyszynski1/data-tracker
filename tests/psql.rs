@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use datatracker_rust::connector::factory::getter_from_task_input;
 use datatracker_rust::connector::psql::{monitor_changes, PSQLConfig};
+use datatracker_rust::core::channels::ChannelsManager;
 use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::{InputData, TaskInput, TrackingTask};
 use datatracker_rust::core::tracker::Tracker;
-use datatracker_rust::core::types::{Direction, TaskKind};
+use datatracker_rust::core::types::{Direction, Hook, TaskKind};
 use datatracker_rust::lang::engine::Definition;
 use datatracker_rust::lang::lexer::EvalForest;
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
@@ -55,6 +56,7 @@ async fn test_psql_connector() {
     let mut tracker = Tracker::new(
         api,
         db.clone(),
+        ChannelsManager::default(),
         receive,
         shutdown_recv,
         shutdown_notify.clone(),
@@ -98,6 +100,7 @@ async fn test_psql_connector() {
     )
     .with_eval_forest(ef)
     .with_input(input);
+
     tt_send.send(tt).await.unwrap();
 
     sleep(Duration::from_millis(500)).await;
@@ -161,10 +164,7 @@ async fn test_changes_monitor_whole_flow() {
 
     env_logger::try_init();
 
-    let (sender, receiver) = channel::<InputData>(1);
     let (client, psql_cfg) = prep_psql().await;
-    tokio::task::spawn(async { monitor_changes(psql_cfg, sender).await });
-
     let (shutdown_notify, shutdown_recv) = broadcast::channel(1);
     let (tt_send, receive) = channel::<TrackingTask>(10);
     let (_, cmd_receive) = channel::<TaskCommand>(10);
@@ -176,6 +176,7 @@ async fn test_changes_monitor_whole_flow() {
     let mut tracker = Tracker::new(
         api,
         db.clone(),
+        ChannelsManager::default(),
         receive,
         shutdown_recv,
         shutdown_notify.clone(),
@@ -209,12 +210,16 @@ async fn test_changes_monitor_whole_flow() {
         String::from("A1"),
         Direction::Horizontal,
         None,
-        TaskKindRequest::Ticker { interval_secs: 1 },
+        TaskKindRequest::Triggered(Hook::PSQL {
+            host: psql_cfg.host,
+            port: psql_cfg.port,
+            user: psql_cfg.user,
+            password: psql_cfg.password,
+            db: psql_cfg.db,
+            channel: psql_cfg.channel_name.as_ref().unwrap().to_string(),
+        }),
     )
-    .with_eval_forest(ef)
-    .with_kind(TaskKind::Triggered {
-        ch: Arc::new(Mutex::new(receiver)),
-    });
+    .with_eval_forest(ef);
 
     tt_send.send(tt).await.unwrap();
 

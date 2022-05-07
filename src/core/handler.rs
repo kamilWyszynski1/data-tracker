@@ -1,3 +1,4 @@
+use super::channels::ChannelsManager;
 use super::manager::Command;
 use super::task::InputData;
 use super::task::TrackingTask;
@@ -28,6 +29,7 @@ pub struct TaskHandler<A: API> {
     // state: Mutex<State>,
     /// Receives Command regarding running task.
     receiver: Receiver<Command>,
+    channels_manager: ChannelsManager,
 }
 
 impl<A> TaskHandler<A>
@@ -41,6 +43,7 @@ where
         shutdown: Shutdown,
         api: Arc<A>,
         receiver: Receiver<Command>,
+        channels_manager: ChannelsManager,
     ) -> Self {
         TaskHandler {
             db,
@@ -48,6 +51,7 @@ where
             api,
             receiver,
             task,
+            channels_manager,
         }
     }
 
@@ -61,6 +65,8 @@ where
     }
 
     pub async fn start(&mut self) {
+        self.task.init_channels(&self.channels_manager).await;
+
         if self.task.status == State::Created {
             debug!("saving task on receive: {:?}", self.task);
             self.db.save_task(&self.task).await.unwrap();
@@ -171,10 +177,12 @@ where
 }
 
 async fn run_signal(task: &TrackingTask) -> InputData {
-    match task.kind.clone() {
+    assert!(task.kind.is_some());
+    let kind = task.kind.as_ref().unwrap();
+    match kind {
         TaskKind::Triggered { ch } => ch.lock().await.recv().await.unwrap(),
         TaskKind::Ticker { interval } => {
-            let mut timer = tokio::time::interval(interval);
+            let mut timer = tokio::time::interval(*interval);
             timer.tick().await;
             task.data().await.unwrap()
         }
@@ -258,10 +266,11 @@ fn add_str(s: &str, increment: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::TaskHandler;
+    use crate::core::channels::ChannelsManager;
     use crate::core::handler::run_signal;
     use crate::core::manager::Command;
     use crate::core::task::{BoxFnThatReturnsAFuture, InputData, TrackingTask};
-    use crate::core::types::{Direction, State, TaskKind};
+    use crate::core::types::{Direction, Hook, State, TaskKind};
     use crate::error::types::Result;
     use crate::persistance::in_memory::InMemoryPersistance;
     use crate::persistance::interface::Db;
@@ -283,7 +292,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_signal_ticker() {
-        let tt = TrackingTask::new(
+        let mut tt = TrackingTask::new(
             "spreadsheet_id".to_string(),
             "".to_string(),
             "A1:B1".to_string(),
@@ -291,6 +300,7 @@ mod tests {
             data_fn(),
             TaskKindRequest::Ticker { interval_secs: 1 },
         );
+        tt.init_channels(&ChannelsManager::default()).await;
         let id = run_signal(&tt).await;
         assert_eq!(id, InputData::String(String::from("test")))
     }
@@ -358,12 +368,20 @@ mod tests {
         );
 
         let db = InMemoryPersistance::new();
+        let channels_manager = ChannelsManager::default();
         let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
         let shutdown = Shutdown::new(shutdown_receiver);
         let (api, mut ch) = TestAPI::new();
         let api = Arc::new(api);
         let (cmd_sender, cmd_receiver) = mpsc::channel(1);
-        let mut handler = TaskHandler::new(tt, Db::new(Box::new(db)), shutdown, api, cmd_receiver);
+        let mut handler = TaskHandler::new(
+            tt,
+            Db::new(Box::new(db)),
+            shutdown,
+            api,
+            cmd_receiver,
+            channels_manager,
+        );
 
         tokio::task::spawn(async move { handler.start().await });
 
@@ -388,29 +406,43 @@ mod tests {
     async fn test_handler_triggered() {
         env_logger::try_init();
 
-        let (sender, receiver) = mpsc::channel(1);
-
         let tt = TrackingTask::new(
             "spreadsheet_id".to_string(),
             "".to_string(),
             "A1".to_string(),
             Direction::Vertical,
             data_fn(),
-            TaskKindRequest::Ticker { interval_secs: 1 },
-        )
-        .with_kind(TaskKind::Triggered {
-            ch: Arc::new(Mutex::new(receiver)),
-        });
+            TaskKindRequest::Triggered(Hook::None),
+        );
+        let id = tt.id.clone();
 
         let db = InMemoryPersistance::new();
+        let channels_manager = ChannelsManager::default();
         let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
         let shutdown = Shutdown::new(shutdown_receiver);
         let (api, mut ch) = TestAPI::new();
         let api = Arc::new(api);
         let (cmd_sender, cmd_receiver) = mpsc::channel(1);
-        let mut handler = TaskHandler::new(tt, Db::new(Box::new(db)), shutdown, api, cmd_receiver);
+        let mut handler = TaskHandler::new(
+            tt,
+            Db::new(Box::new(db)),
+            shutdown,
+            api,
+            cmd_receiver,
+            channels_manager.clone(),
+        );
 
         tokio::task::spawn(async move { handler.start().await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let sender = channels_manager
+            .triggered_channels
+            .lock()
+            .await
+            .get(&id)
+            .unwrap()
+            .clone();
+
         sender
             .send(InputData::Vector(vec![InputData::String(String::from(
                 "triggered",
@@ -439,22 +471,18 @@ mod tests {
     async fn test_handler_command() {
         env_logger::try_init();
 
-        let (sender, receiver) = mpsc::channel(1);
-
         let tt = TrackingTask::new(
             "spreadsheet_id".to_string(),
             "".to_string(),
             "A1".to_string(),
             Direction::Vertical,
             data_fn(),
-            TaskKindRequest::Ticker { interval_secs: 1 },
-        )
-        .with_kind(TaskKind::Triggered {
-            ch: Arc::new(Mutex::new(receiver)),
-        });
+            TaskKindRequest::Triggered(Hook::None),
+        );
         let id = tt.id;
 
         let mut db = Db::new(Box::new(InMemoryPersistance::new()));
+        let channels_manager = ChannelsManager::default();
         let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
         let shutdown = Shutdown::new(shutdown_receiver);
         let (api, _) = TestAPI::new();
@@ -462,7 +490,14 @@ mod tests {
         let (cmd_sender, cmd_receiver) = mpsc::channel(1);
 
         // TODO: write task to DB on TaskHandler start.
-        let mut handler = TaskHandler::new(tt, db.clone(), shutdown, api, cmd_receiver);
+        let mut handler = TaskHandler::new(
+            tt,
+            db.clone(),
+            shutdown,
+            api,
+            cmd_receiver,
+            channels_manager.clone(),
+        );
 
         tokio::task::spawn(async move { handler.start().await });
 
@@ -478,6 +513,13 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(db.read_task(id).await.unwrap().status, State::Quit);
 
+        let sender = channels_manager
+            .triggered_channels
+            .lock()
+            .await
+            .get(&id)
+            .unwrap()
+            .clone();
         sender
             .send(InputData::String(String::from("test")))
             .await

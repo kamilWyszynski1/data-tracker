@@ -1,5 +1,7 @@
+use super::channels::ChannelsManager;
 use super::types::*;
 use crate::connector::factory::getter_from_task_input;
+use crate::connector::psql::{monitor_changes, PSQLConfig};
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::EvalForest;
 use crate::models::task::TaskModel;
@@ -11,6 +13,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
+use tokio::sync::mpsc::channel as create_channel;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -99,7 +103,7 @@ pub struct TrackingTask {
     pub callbacks: Option<Vec<CallbackFn>>,
 
     #[derivative(PartialEq = "ignore")]
-    pub kind: TaskKind,
+    pub kind: Option<TaskKind>, // None if not initialized.
     pub kind_request: TaskKindRequest, // request from API, needed for persistance.
 }
 
@@ -124,7 +128,7 @@ impl TrackingTask {
             id: Uuid::new_v4(),
             name: None,
             description: None,
-            data_fn: data_fn.and_then(|f| Some(Arc::new(f))),
+            data_fn: data_fn.map(Arc::new),
             spreadsheet_id,
             sheet,
             starting_position,
@@ -136,8 +140,8 @@ impl TrackingTask {
             eval_forest: EvalForest::default(),
             status: State::Created,
             input: None,
-            kind: TaskKind::from_task_kind_request(&kind_request),
-            kind_request: kind_request,
+            kind: None,
+            kind_request,
         }
     }
 
@@ -150,10 +154,7 @@ impl TrackingTask {
             )
         })?;
 
-        let input = tm
-            .input
-            .as_ref()
-            .and_then(|i| Some(TaskInput::from_json(&i).unwrap()));
+        let input = tm.input.as_ref().map(|i| TaskInput::from_json(i).unwrap());
         let kind_request = TaskKindRequest::from_json(&tm.kind)?;
 
         Ok(TrackingTask {
@@ -162,7 +163,7 @@ impl TrackingTask {
             description: Some(tm.description.clone()),
             data_fn: input
                 .as_ref()
-                .and_then(|i| getter_from_task_input(&i).and_then(|f| Some(Arc::new(f)))),
+                .and_then(|i| getter_from_task_input(i).map(Arc::new)),
             spreadsheet_id: tm.spreadsheet_id.clone(),
             starting_position: tm.position.clone(),
             sheet: tm.sheet.clone(),
@@ -174,9 +175,59 @@ impl TrackingTask {
             status: tm.status,
             callbacks: None,
             input,
-            kind: TaskKind::from_task_kind_request(&kind_request),
+            kind: None,
             kind_request,
         })
+    }
+
+    /// Sets TaskKind for TrackingTask, create channels and spawns needed tokio::task for needed types.
+    pub async fn init_channels(&mut self, channels_manager: &ChannelsManager) {
+        self.kind = Some(match self.kind_request.clone() {
+            TaskKindRequest::Triggered(hook) => match hook {
+                Hook::None => {
+                    let (sender, receiver) = create_channel(1);
+                    channels_manager.add_triggered(self.id, sender).await;
+                    TaskKind::Triggered {
+                        ch: Arc::new(Mutex::new(receiver)),
+                    }
+                }
+                Hook::PSQL {
+                    host,
+                    port,
+                    user,
+                    password,
+                    db,
+                    channel,
+                } => {
+                    let (sender, receiver) = create_channel(1);
+                    tokio::task::spawn(async move {
+                        monitor_changes(
+                            PSQLConfig::new(host, port, user, password, db, Some(channel)),
+                            sender,
+                        )
+                        .await;
+                    });
+                    TaskKind::Triggered {
+                        ch: Arc::new(Mutex::new(receiver)),
+                    }
+                }
+                Hook::Kafka {
+                    host: _,
+                    port: _,
+                    topic: _,
+                } => todo!(),
+            },
+            TaskKindRequest::Clicked => {
+                let (sender, receiver) = create_channel::<()>(1);
+                channels_manager.add_clicked(self.id, sender).await;
+                TaskKind::Clicked {
+                    ch: Arc::new(Mutex::new(receiver)),
+                }
+            }
+            TaskKindRequest::Ticker { interval_secs } => TaskKind::Ticker {
+                interval: Duration::from_secs(interval_secs),
+            },
+        });
     }
 
     // sets task name.
@@ -235,7 +286,7 @@ impl TrackingTask {
     }
 
     pub fn with_kind(mut self, kind: TaskKind) -> TrackingTask {
-        self.kind = kind;
+        self.kind = Some(kind);
         self
     }
 
@@ -250,11 +301,13 @@ impl TrackingTask {
     }
 
     pub async fn data(&self) -> Result<InputData> {
-        (self.data_fn.as_ref().ok_or(Error::new_internal(
-            String::from("TrackingTask:data"),
-            String::from("data_fn is None"),
-            String::default(),
-        ))?)()
+        (self.data_fn.as_ref().ok_or_else(|| {
+            Error::new_internal(
+                String::from("TrackingTask:data"),
+                String::from("data_fn is None"),
+                String::default(),
+            )
+        })?)()
         .await
     }
 
@@ -281,20 +334,23 @@ impl TrackingTask {
             timestamp_position: TimestampPosition::None,
             invocations: None,
             eval_forest: EvalForest::from_definition(&tcr.definition),
-            data_fn: getter_from_task_input(tcr.input.as_ref().unwrap())
-                .and_then(|f| Some(Arc::new(f))),
+            data_fn: tcr
+                .input
+                .as_ref()
+                .and_then(|i| getter_from_task_input(i).map(Arc::new)),
             status: State::Created,
             input: tcr.input,
-            kind: TaskKind::from_task_kind_request(&tcr.kind_request),
+            kind: None,
             kind_request: tcr.kind_request,
         })
     }
 }
 
 mod test {
-    #[allow(unused_imports)]
+    #![allow(unused_imports)]
     use crate::core::task::{Direction, InputData, TaskInput, TrackingTask};
-    use crate::{error::types::Result, server::task::TaskKindRequest};
+    use crate::error::types::Result;
+    use crate::server::task::TaskKindRequest;
 
     #[allow(dead_code)]
     async fn test_get_data_fn() -> Result<InputData> {

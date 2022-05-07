@@ -7,7 +7,7 @@ migrate:
 test:
 	cargo t
 
-pslq-docker:
+psql-docker:
 	docker start postgres-test || docker run --name postgres-test -p 5432:5432 -e POSTGRES_PASSWORD=password -d postgres:14
 
 test-integ:

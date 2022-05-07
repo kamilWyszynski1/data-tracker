@@ -1,3 +1,4 @@
+use super::channels::ChannelsManager;
 use super::handler::TaskHandler;
 use super::manager::{SenderManager, TaskCommand};
 use super::task::TrackingTask;
@@ -22,6 +23,8 @@ where
     api: Arc<A>,
     /// Saves last state of handled task.
     db: Db,
+    /// Manages task's channels.
+    channels_manager: ChannelsManager,
     /// Listen for incoming TrackingTask to handle.
     task_channel: Receiver<TrackingTask>,
     /// Listen for incoming Command for Task to handle.
@@ -50,6 +53,7 @@ where
     pub fn new(
         api: A,
         db: Db,
+        channels_manager: ChannelsManager,
         task_channel: Receiver<TrackingTask>,
         shutdown_channel: broadcast::Receiver<()>,
         notify_shutdown: broadcast::Sender<()>,
@@ -60,6 +64,7 @@ where
             task_channel,
             task_command_channel,
             db,
+            channels_manager,
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
             manager: SenderManager::default(),
@@ -112,6 +117,7 @@ where
             Shutdown::new(self.notify_shutdown.subscribe()),
             self.api.clone(),
             self.manager.add_new_mapping(task.id),
+            self.channels_manager.clone(),
         );
         spawned.push(tokio::task::spawn(async move { handler.start().await }));
     }
@@ -134,6 +140,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::core::channels::ChannelsManager;
     use crate::core::task::*;
     use crate::core::tracker::Tracker;
     use crate::error::types::{Error, Result};
@@ -235,6 +242,7 @@ mod tests {
         .with_callback(c(tx))
         .with_invocations(1);
 
+        let channels_manager = ChannelsManager::default();
         let mut mock_persistence = MockPersistance::new();
         mock_persistence
             .expect_save_task()
@@ -259,6 +267,7 @@ mod tests {
                 fail_msg: fail_msg,
             },
             Db::new(Box::new(mock_persistence)),
+            channels_manager,
             receive,
             shutdown,
             shutdown_notify,
@@ -317,6 +326,7 @@ mod tests {
         let mut t = Tracker::new(
             MockAPI::new(),
             Db::new(Box::new(mock_persistence)),
+            ChannelsManager::default(),
             receive,
             shutdown,
             shutdown_notify,

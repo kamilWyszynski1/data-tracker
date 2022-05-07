@@ -56,7 +56,7 @@ fn get_stats_response_from_tts(tt: TrackingTask) -> GetStatsResponse {
         spreadsheet_id: tt.spreadsheet_id,
         sheet: tt.sheet,
         direction: tt.direction.to_string(),
-        interval_secs: 10 as i32,
+        interval_secs: 10_i32,
         input: tt.input.unwrap_or_default().to_json(),
         status: tt.status.to_string(),
         eval_forest: tt.eval_forest.to_string().unwrap_or_default(),

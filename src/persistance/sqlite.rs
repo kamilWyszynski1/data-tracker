@@ -155,7 +155,7 @@ impl Persistance for SqliteClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::task::{InputData, TaskInput, TrackingTask};
+    use crate::core::task::{InputData, TrackingTask};
     use crate::core::types::*;
     use crate::error::types::Result;
     use crate::lang::engine::Definition;
@@ -211,9 +211,7 @@ mod tests {
             callbacks: None,
             status: State::Created,
             input: None,
-            kind: TaskKind::Ticker {
-                interval: Duration::from_secs(1),
-            },
+            kind: None,
             kind_request: TaskKindRequest::Ticker { interval_secs: 1 },
         };
 
@@ -263,9 +261,7 @@ mod tests {
             input: None,
             callbacks: None,
             status: State::Created,
-            kind: TaskKind::Ticker {
-                interval: Duration::from_secs(1),
-            },
+            kind: None,
             kind_request: kind_request.clone(),
         };
         let tt2 = TrackingTask {
@@ -284,9 +280,7 @@ mod tests {
             input: None,
             callbacks: None,
             status: State::Running,
-            kind: TaskKind::Ticker {
-                interval: Duration::from_secs(1),
-            },
+            kind: None,
             kind_request: kind_request.clone(),
         };
         let tt3 = TrackingTask {
@@ -305,9 +299,7 @@ mod tests {
             input: None,
             callbacks: None,
             status: State::Quit,
-            kind: TaskKind::Ticker {
-                interval: Duration::from_secs(1),
-            },
+            kind: None,
             kind_request,
         };
 

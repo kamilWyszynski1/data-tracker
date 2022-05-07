@@ -34,7 +34,7 @@ impl TaskModel {
             with_timestamp: tt.with_timestamp,
             timestamp_position: tt.timestamp_position,
             eval_forest: tt.eval_forest.to_string().unwrap_or_default(),
-            input: tt.input.as_ref().and_then(|f| Some(f.to_json())),
+            input: tt.input.as_ref().map(|f| f.to_json()),
             kind: tt.kind_request.to_json(),
         }
     }

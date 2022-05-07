@@ -1,9 +1,8 @@
-use std::sync::Arc;
-
 use crate::core::task::{BoxFnThatReturnsAFuture, InputData};
 use crate::error::types::{Error, Result};
 use futures::{stream, StreamExt};
 use postgres::{Client, NoTls};
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio_postgres::AsyncMessage;
 
@@ -92,7 +91,6 @@ pub fn getter_from_psql(cfg: PSQLConfig, query: String) -> BoxFnThatReturnsAFutu
 
 /// Function wraps psql NOTIFY/LISTEN functionality.
 pub async fn monitor_changes(cfg: PSQLConfig, sender: Sender<InputData>) {
-    debug!("1!");
     let (client, mut connection) = tokio_postgres::connect(cfg.to_conn_str().as_str(), NoTls)
         .await
         .unwrap();
@@ -102,10 +100,7 @@ pub async fn monitor_changes(cfg: PSQLConfig, sender: Sender<InputData>) {
         let mut stream =
             stream::poll_fn(move |cx| connection.poll_message(cx).map_err(|e| panic!("{}", e)));
 
-        debug!("2!");
-
         while let Some(n) = stream.next().await {
-            debug!("message!");
             let msg = n.unwrap();
             if let AsyncMessage::Notification(notification) = msg {
                 debug!("notification: {:?}", notification);
@@ -120,6 +115,4 @@ pub async fn monitor_changes(cfg: PSQLConfig, sender: Sender<InputData>) {
         drop(client);
     });
     client2.query("LISTEN test_channel", &[]).await.unwrap();
-
-    debug!("3!");
 }

@@ -1,3 +1,4 @@
+use super::channels::ChannelsManager;
 use super::handler::TaskHandler;
 use super::manager::{SenderManager, TaskCommand};
 use super::task::TrackingTask;
@@ -22,6 +23,8 @@ where
     api: Arc<A>,
     /// Saves last state of handled task.
     db: Db,
+    /// Manages task's channels.
+    channels_manager: ChannelsManager,
     /// Listen for incoming TrackingTask to handle.
     task_channel: Receiver<TrackingTask>,
     /// Listen for incoming Command for Task to handle.
@@ -50,6 +53,7 @@ where
     pub fn new(
         api: A,
         db: Db,
+        channels_manager: ChannelsManager,
         task_channel: Receiver<TrackingTask>,
         shutdown_channel: broadcast::Receiver<()>,
         notify_shutdown: broadcast::Sender<()>,
@@ -60,6 +64,7 @@ where
             task_channel,
             task_command_channel,
             db,
+            channels_manager,
             shutdown: Shutdown::new(shutdown_channel),
             notify_shutdown,
             manager: SenderManager::default(),
@@ -82,9 +87,7 @@ where
                     break;
                 }
                 Some(task) = self.task_channel.recv() => {
-                    if let Err(e) = self.receive_task(&task, &mut spawned).await {
-                        error!("{:?}", e);
-                    }
+                    self.start_handler_for_task(&task, &mut spawned).await
                 }
                 Some(task_cmd) = self.task_command_channel.recv() => {
                     self.manager.apply(task_cmd.id, task_cmd.cmd).await;
@@ -96,21 +99,6 @@ where
             info!("awaiting {} spawned", i);
             s.await.unwrap();
         }
-    }
-
-    /// Gets task, creates new TaskHandler and pushes it to spawned handlers.
-    /// TaskHandler will start its work waiting for shutdown message.
-    async fn receive_task(
-        &mut self,
-        task: &TrackingTask,
-        spawned: &mut Vec<JoinHandle<()>>,
-    ) -> Result<()> {
-        if task.status == State::Created {
-            debug!("saving task on receive: {:?}", task);
-            self.db.save_task(task).await?;
-        }
-        self.start_handler_for_task(task, spawned).await;
-        Ok(())
     }
 
     /// Creates new TaskHandler for given task and pushes it to vector of handlers.
@@ -129,6 +117,7 @@ where
             Shutdown::new(self.notify_shutdown.subscribe()),
             self.api.clone(),
             self.manager.add_new_mapping(task.id),
+            self.channels_manager.clone(),
         );
         spawned.push(tokio::task::spawn(async move { handler.start().await }));
     }
@@ -151,9 +140,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::core::channels::ChannelsManager;
     use crate::core::task::*;
     use crate::core::tracker::Tracker;
     use crate::error::types::{Error, Result};
+    use crate::server::task::TaskKindRequest;
     use crate::wrap::{MockAPI, API};
     use async_trait::async_trait; // crate for async traits.
 
@@ -188,6 +179,10 @@ mod tests {
     use crate::persistance::interface::{Db, MockPersistance};
     use tokio::sync::broadcast;
     use tokio::sync::mpsc::channel;
+
+    fn data_fn() -> Option<BoxFnThatReturnsAFuture> {
+        Some(Box::new(move || Box::pin(test_get_data_fn())))
+    }
 
     #[tokio::test]
     #[timeout(10000)]
@@ -230,8 +225,8 @@ mod tests {
             "".to_string(),
             "A4".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST4".to_string())
         .with_invocations(1);
@@ -240,13 +235,14 @@ mod tests {
             "".to_string(),
             "A5".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST5".to_string())
         .with_callback(c(tx))
         .with_invocations(1);
 
+        let channels_manager = ChannelsManager::default();
         let mut mock_persistence = MockPersistance::new();
         mock_persistence
             .expect_save_task()
@@ -271,6 +267,7 @@ mod tests {
                 fail_msg: fail_msg,
             },
             Db::new(Box::new(mock_persistence)),
+            channels_manager,
             receive,
             shutdown,
             shutdown_notify,
@@ -297,8 +294,8 @@ mod tests {
             "".to_string(),
             "A4".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST4".to_string());
         t1.status = State::Running;
@@ -308,8 +305,8 @@ mod tests {
             "".to_string(),
             "A5".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            data_fn(),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         )
         .with_name("TEST5".to_string())
         .with_invocations(1);
@@ -329,6 +326,7 @@ mod tests {
         let mut t = Tracker::new(
             MockAPI::new(),
             Db::new(Box::new(mock_persistence)),
+            ChannelsManager::default(),
             receive,
             shutdown,
             shutdown_notify,

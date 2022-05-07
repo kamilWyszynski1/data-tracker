@@ -1,9 +1,11 @@
+use super::channels::ChannelsManager;
 use super::types::*;
 use crate::connector::factory::getter_from_task_input;
+use crate::connector::psql::{monitor_changes, PSQLConfig};
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::EvalForest;
 use crate::models::task::TaskModel;
-use crate::server::task::TaskCreateRequest;
+use crate::server::task::{TaskCreateRequest, TaskKindRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
@@ -11,6 +13,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
+use tokio::sync::mpsc::channel as create_channel;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -56,7 +60,7 @@ impl Default for TaskInput {
 }
 
 /// Enum for user's input data.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub enum InputData {
     String(String),
     Json(Value),
@@ -84,18 +88,23 @@ pub struct TrackingTask {
     pub starting_position: String,   // starting position of data in the spreadsheet. A1 notation.
     pub sheet: String,               // exact sheet of spreadsheet. Default is empty, first sheet.
     pub direction: Direction,
-    pub interval: Duration,   // interval between data writes.
     pub with_timestamp: bool, // whether to write timestamp.
     pub timestamp_position: TimestampPosition,
     pub invocations: Option<i32>, // number of invocations.
     pub eval_forest: EvalForest,  // definition of handling data.
     pub status: State,
-    pub input: TaskInput,
+    pub input: Option<TaskInput>,
 
     #[derivative(Debug = "ignore")]
     #[derivative(PartialEq = "ignore")]
-    pub data_fn: Arc<BoxFnThatReturnsAFuture>, // function that returns data to be written.
+    // Function that returns data to be written.
+    // Can be None because task can get data straight from connector event.
+    pub data_fn: Option<Arc<BoxFnThatReturnsAFuture>>,
     pub callbacks: Option<Vec<CallbackFn>>,
+
+    #[derivative(PartialEq = "ignore")]
+    pub kind: Option<TaskKind>, // None if not initialized.
+    pub kind_request: TaskKindRequest, // request from API, needed for persistance.
 }
 
 impl TrackingTask {
@@ -106,31 +115,33 @@ impl TrackingTask {
         sheet: String,
         starting_position: String,
         direction: Direction,
-        data_fn: BoxFnThatReturnsAFuture,
-        interval: Duration,
+        data_fn: Option<BoxFnThatReturnsAFuture>,
+        kind_request: TaskKindRequest,
     ) -> TrackingTask {
         assert_ne!(spreadsheet_id, "", "spreadsheet_id cannot be empty");
         assert!(
             starting_position.len() >= 2,
             "starting_position must be at least 2 characters long."
         );
+
         TrackingTask {
             id: Uuid::new_v4(),
             name: None,
             description: None,
-            data_fn: Arc::new(data_fn),
+            data_fn: data_fn.map(Arc::new),
             spreadsheet_id,
             sheet,
             starting_position,
             direction,
-            interval,
             callbacks: None,
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
             eval_forest: EvalForest::default(),
             status: State::Created,
-            input: TaskInput::default(),
+            input: None,
+            kind: None,
+            kind_request,
         }
     }
 
@@ -143,18 +154,20 @@ impl TrackingTask {
             )
         })?;
 
-        let input = TaskInput::from_json(&tm.input)?;
+        let input = tm.input.as_ref().map(|i| TaskInput::from_json(i).unwrap());
+        let kind_request = TaskKindRequest::from_json(&tm.kind)?;
 
         Ok(TrackingTask {
             id,
             name: Some(tm.name.clone()),
             description: Some(tm.description.clone()),
-            data_fn: Arc::new(getter_from_task_input(&input)),
+            data_fn: input
+                .as_ref()
+                .and_then(|i| getter_from_task_input(i).map(Arc::new)),
             spreadsheet_id: tm.spreadsheet_id.clone(),
             starting_position: tm.position.clone(),
             sheet: tm.sheet.clone(),
             direction: tm.direction,
-            interval: Duration::from_secs(tm.interval_secs as u64),
             with_timestamp: true,
             timestamp_position: tm.timestamp_position,
             invocations: None,
@@ -162,7 +175,59 @@ impl TrackingTask {
             status: tm.status,
             callbacks: None,
             input,
+            kind: None,
+            kind_request,
         })
+    }
+
+    /// Sets TaskKind for TrackingTask, create channels and spawns needed tokio::task for needed types.
+    pub async fn init_channels(&mut self, channels_manager: &ChannelsManager) {
+        self.kind = Some(match self.kind_request.clone() {
+            TaskKindRequest::Triggered(hook) => match hook {
+                Hook::None => {
+                    let (sender, receiver) = create_channel(1);
+                    channels_manager.add_triggered(self.id, sender).await;
+                    TaskKind::Triggered {
+                        ch: Arc::new(Mutex::new(receiver)),
+                    }
+                }
+                Hook::PSQL {
+                    host,
+                    port,
+                    user,
+                    password,
+                    db,
+                    channel,
+                } => {
+                    let (sender, receiver) = create_channel(1);
+                    tokio::task::spawn(async move {
+                        monitor_changes(
+                            PSQLConfig::new(host, port, user, password, db, Some(channel)),
+                            sender,
+                        )
+                        .await;
+                    });
+                    TaskKind::Triggered {
+                        ch: Arc::new(Mutex::new(receiver)),
+                    }
+                }
+                Hook::Kafka {
+                    host: _,
+                    port: _,
+                    topic: _,
+                } => todo!(),
+            },
+            TaskKindRequest::Clicked => {
+                let (sender, receiver) = create_channel::<()>(1);
+                channels_manager.add_clicked(self.id, sender).await;
+                TaskKind::Clicked {
+                    ch: Arc::new(Mutex::new(receiver)),
+                }
+            }
+            TaskKindRequest::Ticker { interval_secs } => TaskKind::Ticker {
+                interval: Duration::from_secs(interval_secs),
+            },
+        });
     }
 
     // sets task name.
@@ -216,7 +281,12 @@ impl TrackingTask {
     //TODO: refactor - input and data_fn should be highly connected.
     /// sets input field.
     pub fn with_input(mut self, input: TaskInput) -> TrackingTask {
-        self.input = input;
+        self.input = Some(input);
+        self
+    }
+
+    pub fn with_kind(mut self, kind: TaskKind) -> TrackingTask {
+        self.kind = Some(kind);
         self
     }
 
@@ -231,7 +301,14 @@ impl TrackingTask {
     }
 
     pub async fn data(&self) -> Result<InputData> {
-        (self.data_fn)().await
+        (self.data_fn.as_ref().ok_or_else(|| {
+            Error::new_internal(
+                String::from("TrackingTask:data"),
+                String::from("data_fn is None"),
+                String::default(),
+            )
+        })?)()
+        .await
     }
 
     /// returns String that can be put into logs.
@@ -244,8 +321,6 @@ impl TrackingTask {
     }
 
     pub fn from_task_create_request(tcr: TaskCreateRequest) -> Result<Self> {
-        let interval = Duration::new(tcr.interval_secs, 0);
-
         Ok(TrackingTask {
             id: Uuid::new_v4(),
             name: Some(tcr.name),
@@ -254,29 +329,34 @@ impl TrackingTask {
             sheet: tcr.sheet,
             starting_position: tcr.starting_position,
             direction: tcr.direction,
-            interval,
             callbacks: None,
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
             eval_forest: EvalForest::from_definition(&tcr.definition),
-            data_fn: Arc::new(getter_from_task_input(&tcr.input)),
+            data_fn: tcr
+                .input
+                .as_ref()
+                .and_then(|i| getter_from_task_input(i).map(Arc::new)),
             status: State::Created,
             input: tcr.input,
+            kind: None,
+            kind_request: tcr.kind_request,
         })
     }
 }
 
 mod test {
-    #[allow(unused_imports)]
-    use crate::core::task::{Direction, InputData, InputType, TrackingTask};
+    #![allow(unused_imports)]
+    use crate::core::task::{Direction, InputData, TaskInput, TrackingTask};
     use crate::error::types::Result;
+    use crate::server::task::TaskKindRequest;
 
-    use super::TaskInput;
     #[allow(dead_code)]
     async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
     }
+
     #[test]
     fn callback_test() {
         let mut tt = TrackingTask::new(
@@ -284,8 +364,8 @@ mod test {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            Some(Box::new(move || Box::pin(test_get_data_fn()))),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         );
         tt = tt.with_callback(|res: Result<()>| {
             assert!(res.is_ok());
@@ -301,8 +381,8 @@ mod test {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            Some(Box::new(move || Box::pin(test_get_data_fn()))),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         );
         tt = tt.with_name("test".to_string());
         assert_eq!(tt.name.unwrap_or_default().as_str(), "test")
@@ -315,8 +395,8 @@ mod test {
             "".to_string(),
             "A1:B1".to_string(),
             Direction::Vertical,
-            Box::new(move || Box::pin(test_get_data_fn())),
-            std::time::Duration::from_secs(1),
+            Some(Box::new(move || Box::pin(test_get_data_fn()))),
+            TaskKindRequest::Ticker { interval_secs: 1 },
         );
         tt = tt.with_description("test".to_string());
         assert_eq!(tt.description.unwrap_or_default().as_str(), "test")

@@ -5,6 +5,7 @@ use hyper::{body, Body, Response};
 use mockall::*;
 use sheets4::api::ValueRange;
 use sheets4::{Error, Sheets};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 #[async_trait]
 #[automock]
@@ -94,10 +95,12 @@ impl APIWrapper {
         .unwrap();
 
         debug!("creating hub");
-        let client = Sheets::new(
-            hyper::Client::builder().build(hyper_rustls::HttpsConnector::with_native_roots()),
-            auth,
-        );
+        let https = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .https_only()
+            .enable_http1()
+            .build();
+        let client = Sheets::new(hyper::Client::builder().build(https), auth);
         APIWrapper { client }
     }
 
@@ -169,8 +172,32 @@ pub struct StdoutAPI {}
 #[async_trait]
 impl API for StdoutAPI {
     async fn write(&self, values: Vec<Vec<String>>, sheet_id: &str, range: &str) -> Result<()> {
-        println!("{:?} {} {}", values, sheet_id, range);
+        info!("{:?} {} {}", values, sheet_id, range);
         Ok(())
+    }
+}
+
+pub struct TestAPI {
+    sender: Sender<Vec<Vec<String>>>,
+}
+
+impl TestAPI {
+    pub fn new() -> (Self, Receiver<Vec<Vec<String>>>) {
+        let (sender, receiver) = channel::<Vec<Vec<String>>>(1);
+        (Self { sender }, receiver)
+    }
+}
+
+#[async_trait]
+impl API for TestAPI {
+    async fn write(&self, values: Vec<Vec<String>>, _sheet_id: &str, _range: &str) -> Result<()> {
+        self.sender.send(values).await.map_err(|err| {
+            IError::new_internal(
+                String::from("TestAPI:write"),
+                String::from("failed to send values to receiver"),
+                err.to_string(),
+            )
+        })
     }
 }
 

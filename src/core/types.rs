@@ -1,3 +1,5 @@
+use super::manager::Command;
+use super::task::InputData;
 use diesel::backend::Backend;
 use diesel::deserialize;
 use diesel::serialize::{self, Output};
@@ -6,8 +8,10 @@ use diesel::types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::io;
-
-use super::manager::Command;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::Mutex;
 
 /// Supported types for task's input data.
 /// Should match with InputData.
@@ -230,4 +234,30 @@ where
             _ => return Err("replace me with a real error".into()),
         })
     }
+}
+
+#[derive(Debug, Derivative, Clone)]
+/// Describes how TrackingTask is being run.
+pub enum TaskKind {
+    Ticker { interval: Duration },
+    Triggered { ch: Arc<Mutex<Receiver<InputData>>> },
+    Clicked { ch: Arc<Mutex<Receiver<()>>> }, // Clicked that will be triggered by e.g. api call or clicked button.
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum Hook {
+    None, // Empty hook, for testing purposes.
+    PSQL {
+        host: String,
+        port: u16,
+        user: String,
+        password: String,
+        db: String,
+        channel: String, // psql channel that will be listened.
+    },
+    Kafka {
+        host: String,
+        port: u16,
+        topic: String,
+    },
 }

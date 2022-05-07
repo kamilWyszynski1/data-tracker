@@ -1,4 +1,5 @@
 extern crate datatracker_rust;
+use datatracker_rust::core::channels::ChannelsManager;
 use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::TrackingTask;
 use datatracker_rust::core::tracker::Tracker;
@@ -32,10 +33,12 @@ async fn main() {
     let api = StdoutAPI::default();
     let pers = SqliteClient::new(establish_connection());
     let db = Db::new(Box::new(pers));
+    let channels_manager = ChannelsManager::default();
 
     let mut tracker = Tracker::new(
         api,
         db.clone(),
+        channels_manager,
         receive,
         shutdown_recv,
         shutdown_notify.clone(),

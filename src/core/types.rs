@@ -256,8 +256,8 @@ pub enum Hook {
         channel: String, // psql channel that will be listened.
     },
     Kafka {
-        host: String,
-        port: u16,
         topic: String,
+        group_id: String,
+        brokers: String,
     },
 }

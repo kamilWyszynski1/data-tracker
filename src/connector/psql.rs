@@ -3,6 +3,7 @@ use crate::error::types::{Error, Result};
 use futures::{stream, StreamExt};
 use postgres::{Client, NoTls};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 use tokio_postgres::AsyncMessage;
 
@@ -90,7 +91,11 @@ pub fn getter_from_psql(cfg: PSQLConfig, query: String) -> BoxFnThatReturnsAFutu
 }
 
 /// Function wraps psql NOTIFY/LISTEN functionality.
-pub async fn monitor_changes(cfg: PSQLConfig, sender: Sender<InputData>) {
+pub async fn monitor_changes(
+    cfg: PSQLConfig,
+    sender: Sender<InputData>,
+    mut shutdown: broadcast::Receiver<()>,
+) {
     let (client, mut connection) = tokio_postgres::connect(cfg.to_conn_str().as_str(), NoTls)
         .await
         .unwrap();
@@ -100,16 +105,25 @@ pub async fn monitor_changes(cfg: PSQLConfig, sender: Sender<InputData>) {
         let mut stream =
             stream::poll_fn(move |cx| connection.poll_message(cx).map_err(|e| panic!("{}", e)));
 
-        while let Some(n) = stream.next().await {
-            let msg = n.unwrap();
-            if let AsyncMessage::Notification(notification) = msg {
-                debug!("notification: {:?}", notification);
-                sender
-                    .send(InputData::String(notification.payload().to_string()))
-                    .await
-                    .unwrap();
-            } else {
-                return;
+        tokio::select! {
+        _ = shutdown.recv() => {
+            debug!("monitor_changes: closing");
+            return;
+        }
+        n = stream.next() => match n {
+            Some(n) => {
+                let msg = n.unwrap();
+                if let AsyncMessage::Notification(notification) = msg {
+                    debug!("notification: {:?}", notification);
+                    sender
+                        .send(InputData::String(notification.payload().to_string()))
+                        .await
+                        .unwrap();
+                } else {
+                    return;
+                }
+            },
+            None => (),
             }
         }
         drop(client);

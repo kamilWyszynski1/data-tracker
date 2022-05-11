@@ -7,11 +7,13 @@ use crate::error::types::Result;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
+use std::collections::HashMap;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 // Tracker is a wrapper for the Google Sheets API.
 // It is used to track various kind of things and keep that data in a Google Sheet.
@@ -65,7 +67,7 @@ where
             task_command_channel,
             db,
             channels_manager,
-            shutdown: Shutdown::new(shutdown_channel),
+            shutdown: Shutdown::new(notify_shutdown.clone(), shutdown_channel),
             notify_shutdown,
             manager: SenderManager::default(),
         }
@@ -73,7 +75,7 @@ where
 
     pub async fn start(&mut self) {
         info!("Starting Tracker.");
-        let mut spawned = vec![];
+        let mut spawned: HashMap<Uuid, JoinHandle<()>> = HashMap::default();
         if let Err(e) = self.load_from_db(&mut spawned).await {
             error!("{:?}", e);
         }
@@ -84,10 +86,10 @@ where
                     info!("tracker is shutting down");
                     // If a shutdown signal is received, return from `start`.
                     // This will result in the task terminating.
-                    break;
+                    break
                 }
                 Some(task) = self.task_channel.recv() => {
-                    self.start_handler_for_task(&task, &mut spawned).await
+                    spawned.insert(task.id, self.start_handler_for_task(&task).await);
                 }
                 Some(task_cmd) = self.task_command_channel.recv() => {
                     self.manager.apply(task_cmd.id, task_cmd.cmd).await;
@@ -95,18 +97,15 @@ where
             }
         }
 
-        for (i, s) in spawned.into_iter().enumerate() {
-            info!("awaiting {} spawned", i);
-            s.await.unwrap();
+        for (i, s) in spawned.into_iter() {
+            s.await
+                .expect(&format!("failed to await TaskHandler for {} task", i));
         }
+        info!("Tracker closed");
     }
 
     /// Creates new TaskHandler for given task and pushes it to vector of handlers.
-    async fn start_handler_for_task(
-        &mut self,
-        task: &TrackingTask,
-        spawned: &mut Vec<JoinHandle<()>>,
-    ) {
+    async fn start_handler_for_task(&mut self, task: &TrackingTask) -> JoinHandle<()> {
         info!(
             "start_handler_for_task - for {}:{} task",
             task.id, task.status
@@ -114,16 +113,19 @@ where
         let mut handler = TaskHandler::new(
             task.clone(),
             self.db.clone(),
-            Shutdown::new(self.notify_shutdown.subscribe()),
+            Shutdown::new(
+                self.notify_shutdown.clone(),
+                self.notify_shutdown.subscribe(),
+            ),
             self.api.clone(),
             self.manager.add_new_mapping(task.id),
             self.channels_manager.clone(),
         );
-        spawned.push(tokio::task::spawn(async move { handler.start().await }));
+        tokio::task::spawn(async move { handler.start().await })
     }
 
     /// Load saved task from DB and start handling them.
-    async fn load_from_db(&mut self, spawned: &mut Vec<JoinHandle<()>>) -> Result<()> {
+    async fn load_from_db(&mut self, spawned: &mut HashMap<Uuid, JoinHandle<()>>) -> Result<()> {
         let tasks = self
             .db
             .get_tasks_by_status(&[State::Running, State::Stopped, State::Created])
@@ -131,8 +133,7 @@ where
         info!("{} tasks loaded from db", tasks.len());
 
         for tt in &tasks {
-            debug!("task from database: {:?}", tt);
-            self.start_handler_for_task(tt, spawned).await;
+            spawned.insert(tt.id, self.start_handler_for_task(tt).await);
         }
         Ok(())
     }

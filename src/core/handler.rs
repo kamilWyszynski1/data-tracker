@@ -65,7 +65,9 @@ where
     }
 
     pub async fn start(&mut self) {
-        self.task.init_channels(&self.channels_manager).await;
+        self.task
+            .init_channels(&self.channels_manager, self.shutdown.subscribe())
+            .await;
 
         if self.task.status == State::Created {
             debug!("saving task on receive: {:?}", self.task);
@@ -282,6 +284,10 @@ mod tests {
     use tokio::select;
     use tokio::sync::{broadcast, mpsc, Mutex};
 
+    fn empty_shutdown() -> broadcast::Receiver<()> {
+        let (_, receiver) = broadcast::channel(1);
+        receiver
+    }
     async fn test_get_data_fn() -> Result<InputData> {
         Ok(InputData::String(String::from("test")))
     }
@@ -300,7 +306,8 @@ mod tests {
             data_fn(),
             TaskKindRequest::Ticker { interval_secs: 1 },
         );
-        tt.init_channels(&ChannelsManager::default()).await;
+        tt.init_channels(&ChannelsManager::default(), empty_shutdown())
+            .await;
         let id = run_signal(&tt).await;
         assert_eq!(id, InputData::String(String::from("test")))
     }
@@ -370,7 +377,7 @@ mod tests {
         let db = InMemoryPersistance::new();
         let channels_manager = ChannelsManager::default();
         let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
-        let shutdown = Shutdown::new(shutdown_receiver);
+        let shutdown = Shutdown::new(shutdown_sender.clone(), shutdown_receiver);
         let (api, mut ch) = TestAPI::new();
         let api = Arc::new(api);
         let (cmd_sender, cmd_receiver) = mpsc::channel(1);
@@ -419,7 +426,7 @@ mod tests {
         let db = InMemoryPersistance::new();
         let channels_manager = ChannelsManager::default();
         let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
-        let shutdown = Shutdown::new(shutdown_receiver);
+        let shutdown = Shutdown::new(shutdown_sender.clone(), shutdown_receiver);
         let (api, mut ch) = TestAPI::new();
         let api = Arc::new(api);
         let (cmd_sender, cmd_receiver) = mpsc::channel(1);
@@ -484,7 +491,7 @@ mod tests {
         let mut db = Db::new(Box::new(InMemoryPersistance::new()));
         let channels_manager = ChannelsManager::default();
         let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
-        let shutdown = Shutdown::new(shutdown_receiver);
+        let shutdown = Shutdown::new(shutdown_sender.clone(), shutdown_receiver);
         let (api, _) = TestAPI::new();
         let api = Arc::new(api);
         let (cmd_sender, cmd_receiver) = mpsc::channel(1);

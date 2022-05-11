@@ -1,5 +1,4 @@
 extern crate datatracker_rust;
-use std::sync::Arc;
 
 use datatracker_rust::connector::factory::getter_from_task_input;
 use datatracker_rust::connector::psql::{monitor_changes, PSQLConfig};
@@ -22,7 +21,7 @@ use tokio_postgres::Client;
 #[macro_use]
 extern crate log;
 
-fn can_be_run() -> bool {
+pub fn can_be_run() -> bool {
     match std::env::var("INTEGRATION") {
         Ok(val) => return val == String::from("1"),
         Err(_) => false,

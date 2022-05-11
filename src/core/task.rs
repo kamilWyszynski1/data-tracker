@@ -1,11 +1,13 @@
 use super::channels::ChannelsManager;
 use super::types::*;
 use crate::connector::factory::getter_from_task_input;
+use crate::connector::kafka::{consume_topic, KafkaConfig};
 use crate::connector::psql::{monitor_changes, PSQLConfig};
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::EvalForest;
 use crate::models::task::TaskModel;
 use crate::server::task::{TaskCreateRequest, TaskKindRequest};
+use crate::shutdown::{self, Shutdown};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
@@ -14,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 use tokio::sync::mpsc::channel as create_channel;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -60,11 +62,33 @@ impl Default for TaskInput {
 }
 
 /// Enum for user's input data.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum InputData {
     String(String),
     Json(Value),
     Vector(Vec<InputData>),
+}
+
+impl InputData {
+    pub fn from_str(value: &str) -> Result<Self> {
+        serde_json::from_str(value).map_err(|e| {
+            Error::new_internal(
+                String::from("InputData::from_str"),
+                String::from("failed to deserialize"),
+                e.to_string(),
+            )
+        })
+    }
+
+    pub fn to_str(&self) -> Result<String> {
+        serde_json::to_string(self).map_err(|e| {
+            Error::new_internal(
+                String::from("InputData::to_str"),
+                String::from("failed to serialize"),
+                e.to_string(),
+            )
+        })
+    }
 }
 
 // type aliases added, because this is a chonker of a type
@@ -181,7 +205,11 @@ impl TrackingTask {
     }
 
     /// Sets TaskKind for TrackingTask, create channels and spawns needed tokio::task for needed types.
-    pub async fn init_channels(&mut self, channels_manager: &ChannelsManager) {
+    pub async fn init_channels(
+        &mut self,
+        channels_manager: &ChannelsManager,
+        mut shutdown: broadcast::Receiver<()>,
+    ) {
         self.kind = Some(match self.kind_request.clone() {
             TaskKindRequest::Triggered(hook) => match hook {
                 Hook::None => {
@@ -212,10 +240,27 @@ impl TrackingTask {
                     }
                 }
                 Hook::Kafka {
-                    host: _,
-                    port: _,
-                    topic: _,
-                } => todo!(),
+                    topic,
+                    group_id,
+                    brokers,
+                } => {
+                    let (sender, receiver) = create_channel(1);
+                    tokio::task::spawn(async move {
+                        consume_topic(
+                            KafkaConfig {
+                                topic,
+                                group_id,
+                                brokers,
+                            },
+                            sender,
+                            &mut shutdown,
+                        )
+                        .await;
+                    });
+                    TaskKind::Triggered {
+                        ch: Arc::new(Mutex::new(receiver)),
+                    }
+                }
             },
             TaskKindRequest::Clicked => {
                 let (sender, receiver) = create_channel::<()>(1);

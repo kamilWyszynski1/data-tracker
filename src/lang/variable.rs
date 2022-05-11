@@ -88,6 +88,9 @@ impl Variable {
             | Variable::Float(_)
             | Variable::String(_) => Err(format!("cannot extract from: {}", self)),
             Variable::Vector(ref vec) => {
+                if vec.len() == 0 {
+                    return Ok(Variable::None);
+                }
                 let inx = match f {
                     Variable::Int(i) => *i as usize,
                     Variable::String(s) => s.parse().unwrap(),
@@ -95,7 +98,7 @@ impl Variable {
                 };
 
                 let inx = inx as usize;
-                if vec.len() < inx - 1 {
+                if inx > 0 && vec.len() < inx - 1 {
                     return Err(String::from("index out of range"));
                 }
                 Ok(vec[inx].clone())

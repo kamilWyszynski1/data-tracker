@@ -65,7 +65,7 @@ where
             task_command_channel,
             db,
             channels_manager,
-            shutdown: Shutdown::new(shutdown_channel),
+            shutdown: Shutdown::new(notify_shutdown.clone(), shutdown_channel),
             notify_shutdown,
             manager: SenderManager::default(),
         }
@@ -114,7 +114,10 @@ where
         let mut handler = TaskHandler::new(
             task.clone(),
             self.db.clone(),
-            Shutdown::new(self.notify_shutdown.subscribe()),
+            Shutdown::new(
+                self.notify_shutdown.clone(),
+                self.notify_shutdown.subscribe(),
+            ),
             self.api.clone(),
             self.manager.add_new_mapping(task.id),
             self.channels_manager.clone(),

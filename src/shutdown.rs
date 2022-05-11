@@ -1,8 +1,8 @@
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{Receiver, Sender};
 
 /// Listens for the server shutdown signal.
 ///
-/// Shutdown is signalled using a `broadcast::Receiver`. Only a single value is
+/// Shutdown is signalled using a `Receiver`. Only a single value is
 /// ever sent. Once a value has been sent via the broadcast channel, the server
 /// should shutdown.
 ///
@@ -14,15 +14,17 @@ pub struct Shutdown {
     /// `true` if the shutdown signal has been received
     shutdown: bool,
 
+    sender: Sender<()>,
     /// The receive half of the channel used to listen for shutdown.
-    notify: broadcast::Receiver<()>,
+    pub notify: Receiver<()>,
 }
 
 impl Shutdown {
-    /// Create a new `Shutdown` backed by the given `broadcast::Receiver`.
-    pub(crate) fn new(notify: broadcast::Receiver<()>) -> Shutdown {
+    /// Create a new `Shutdown` backed by the given `Receiver`.
+    pub(crate) fn new(sender: Sender<()>, notify: Receiver<()>) -> Shutdown {
         Shutdown {
             shutdown: false,
+            sender,
             notify,
         }
     }
@@ -30,6 +32,11 @@ impl Shutdown {
     /// Returns `true` if the shutdown signal has been received.
     pub(crate) fn is_shutdown(&self) -> bool {
         self.shutdown
+    }
+
+    /// Returns new Receiver for shutdown broadcaster.
+    pub(crate) fn subscribe(&self) -> Receiver<()> {
+        self.sender.subscribe()
     }
 
     /// Receive the shutdown notice, waiting if necessary.

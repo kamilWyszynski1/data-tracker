@@ -20,7 +20,7 @@ pub async fn apply(
     let parsed = match Uuid::parse_str(request.id.as_str()) {
         Ok(id) => id,
         Err(err) => {
-            println!("failed to parse uuid {}", err);
+            error!("failed to parse uuid {}", err);
             return Status::BadRequest;
         }
     };
@@ -28,7 +28,7 @@ pub async fn apply(
     let cmd = match Command::from_string(request.command.as_str()) {
         Ok(cmd) => cmd,
         Err(err) => {
-            println!("failed to parse cmd {}", err);
+            error!("failed to parse cmd {}", err);
             return Status::BadRequest;
         }
     };
@@ -36,7 +36,7 @@ pub async fn apply(
     match sender.send(TaskCommand::new(parsed, cmd)).await {
         Ok(_) => Status::Ok,
         Err(err) => {
-            println!("failed to parse cmd {}", err);
+            error!("failed to parse cmd {}", err);
             Status::InternalServerError
         }
     }

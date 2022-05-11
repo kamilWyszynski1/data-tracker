@@ -114,3 +114,16 @@ impl Display for Error {
 }
 
 impl StdError for Error {}
+
+pub trait LogExt {
+    fn log(self) -> Self;
+}
+
+impl<T> LogExt for Result<T> {
+    fn log(self) -> Self {
+        if let Err(e) = &self {
+            error!("An error happened: {}", e);
+        }
+        self
+    }
+}

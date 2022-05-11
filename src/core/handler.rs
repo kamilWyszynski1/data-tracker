@@ -5,6 +5,7 @@ use super::task::TrackingTask;
 use super::types::Direction;
 use super::types::State;
 use crate::core::types::TaskKind;
+use crate::error::types::LogExt;
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::evaluate_data;
 use crate::lang::variable::Variable;
@@ -65,28 +66,41 @@ where
     }
 
     pub async fn start(&mut self) {
-        self.task
+        let background_job = self
+            .task
             .init_channels(&self.channels_manager, self.shutdown.subscribe())
             .await;
 
         if self.task.status == State::Created {
             debug!("saving task on receive: {:?}", self.task);
-            self.db.save_task(&self.task).await.unwrap();
+            let _ = self
+                .db
+                .save_task(&self.task)
+                .await
+                .map_err(|e| {
+                    Error::new_internal(
+                        String::from("TaskHandler::start"),
+                        String::from("failed to save task"),
+                        e.to_string(),
+                    )
+                })
+                .log();
         }
+
         while !self.shutdown.is_shutdown() {
             tokio::select! {
                 _ = self.shutdown.recv() => {
                     info!("handler is shutting down");
                     // If a shutdown signal is received, return from `start`.
                     // This will result in the task terminating.
-                    return;
+                    break
                 }
                 cmd = self.receiver.recv() => {
                     info!("applying {:?} cmd for {} task", cmd, self.task.info());
                     match cmd {
                         None => {
                             info!("receiver has been closed for {} task, returning", self.task.info());
-                            return;
+                            break
                         }
                         Some(command) => {
                             if let Err(err) = self.apply(command).await {
@@ -101,7 +115,7 @@ where
                         State::Created => {
                             if let Err(e) = self.change_status(State::Running).await{
                                 error!("failed to change status to Running: {:?}", e);
-                                return;
+                                break
                             };
                             self.handle(&id).await;
                         }
@@ -116,12 +130,20 @@ where
                                 error!("failed to delete task: {:?}", err);
                             }
                             info!("Task {} is quitting", self.task.info());
-                            return;
+                            break
                         }
                     };
                 }
             }
         }
+        match background_job {
+            Some(join) => {
+                info!("waiting for task background jobs");
+                join.await.expect("failed to wait for task background job")
+            }
+            None => (),
+        }
+        info!("TaskHandler for {} task closed", self.task.id);
     }
 
     /// Performs single handling of task.

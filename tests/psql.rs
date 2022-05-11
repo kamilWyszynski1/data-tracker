@@ -128,8 +128,9 @@ async fn test_changes_monitor() {
     env_logger::try_init();
 
     let (sender, mut receiver) = channel::<InputData>(1);
+    let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
     let (client, psql_cfg) = prep_psql().await;
-    tokio::task::spawn(async { monitor_changes(psql_cfg, sender).await });
+    tokio::task::spawn(async { monitor_changes(psql_cfg, sender, shutdown_receiver).await });
     tokio::task::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
         client
@@ -145,13 +146,14 @@ async fn test_changes_monitor() {
                     Some(n) => {
                         println!("{:?}", n);
                         assert_eq!(n, InputData::String(String::from(r#"{"id":1,"value":"test"}"#)));
-                        return;
+                        break
                     },
                     None =>()
                 }
             }
         }
     }
+    drop(shutdown_sender);
 }
 
 #[tokio::test]

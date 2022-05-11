@@ -1,7 +1,6 @@
 use crate::core::task::InputData;
 use rdkafka::{
     consumer::{stream_consumer::StreamConsumer, Consumer},
-    message::Headers,
     ClientConfig, Message,
 };
 use tokio::sync::{broadcast, mpsc::Sender};

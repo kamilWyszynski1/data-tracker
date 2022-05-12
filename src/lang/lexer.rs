@@ -3,13 +3,14 @@ use super::{
     variable::Variable,
 };
 use crate::lang::variable::value_object_to_variable_object;
-use crate::{core::task::InputData, error::types::Error};
+use crate::{
+    core::task::InputData,
+    error::types::{Error, Result},
+};
 use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{self, Display};
-
-pub type EvalResult<T> = Result<T, Error>;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Enum for Node type.
@@ -22,49 +23,6 @@ enum NodeEnum {
 impl NodeEnum {
     fn default() -> Self {
         Self::None
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct EvalForest {
-    roots: Vec<Node>,
-}
-
-impl EvalForest {
-    pub fn default() -> Self {
-        EvalForest { roots: vec![] }
-    }
-
-    pub fn from_definition(def: &Definition) -> Self {
-        let mut roots = vec![];
-        for step in def.clone().into_iter() {
-            assert_eq!(step.matches('(').count(), step.matches(')').count());
-            let tokens = Lexer::new(&step).make_tokens();
-            let root = Parser::new(tokens).parse();
-            roots.push(root);
-        }
-        EvalForest { roots }
-    }
-
-    /// Serializes whole tree to json string.
-    pub fn to_string(&self) -> EvalResult<String> {
-        serde_json::to_string(self)
-            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
-    }
-
-    /// Loads tree from json string.
-    pub fn from_string(s: &str) -> EvalResult<Self> {
-        serde_json::from_str::<Self>(s)
-            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
-    }
-}
-
-impl IntoIterator for EvalForest {
-    type Item = Node;
-    type IntoIter = <Vec<Node> as IntoIterator>::IntoIter; // so that you don't have to write std::vec::IntoIter, which nobody remembers anyway
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.roots.into_iter()
     }
 }
 
@@ -121,13 +79,13 @@ impl Node {
     }
 
     /// Serializes whole tree to json string.
-    fn to_string(&self) -> EvalResult<String> {
+    fn to_string(&self) -> Result<String> {
         serde_json::to_string(self)
             .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
     }
 
     /// Loads tree from json string.
-    fn from_string(s: &str) -> EvalResult<Self> {
+    fn from_string(s: &str) -> Result<Self> {
         serde_json::from_str::<Self>(s)
             .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
     }
@@ -138,7 +96,7 @@ impl Node {
     /// this function will go trough tree created from that declaration
     /// and evaluate root node and all of nodes below in order to return
     /// single Variable as a result.
-    pub fn eval(&self, state: &mut Engine) -> EvalResult<Variable> {
+    pub fn eval(&self, state: &mut Engine) -> Result<Variable> {
         match self.value {
             NodeEnum::None => todo!(),
             NodeEnum::Keyword(ref keyword) => {
@@ -146,7 +104,7 @@ impl Node {
                     .nodes
                     .iter()
                     .map(|n| n.eval(state))
-                    .collect::<EvalResult<Vec<Variable>>>()?;
+                    .collect::<Result<Vec<Variable>>>()?;
 
                 match keyword {
                     Keyword::Bool => bool(&nodes),
@@ -172,21 +130,21 @@ impl Node {
     }
 }
 
-fn bool(nodes: &[Variable]) -> EvalResult<Variable> {
+fn bool(nodes: &[Variable]) -> Result<Variable> {
     Ok(Variable::Bool(parse_single_param(nodes).map_err(
         |err| Error::new_eval_internal(String::from("bool"), err.to_string()),
     )?))
 }
 
-fn int(nodes: &[Variable]) -> EvalResult<Variable> {
+fn int(nodes: &[Variable]) -> Result<Variable> {
     Ok(Variable::Int(parse_single_param(nodes).map_err(|err| {
         Error::new_eval_internal(String::from("bool"), err.to_string())
     })?))
 }
-fn float(nodes: &[Variable]) -> EvalResult<Variable> {
+fn float(nodes: &[Variable]) -> Result<Variable> {
     Ok(Variable::Float(parse_single_param(nodes)?))
 }
-fn add(nodes: &[Variable]) -> EvalResult<Variable> {
+fn add(nodes: &[Variable]) -> Result<Variable> {
     let mut is_float = false;
     let mut sum: f32 = 0.;
     for n in nodes.iter() {
@@ -212,7 +170,7 @@ fn add(nodes: &[Variable]) -> EvalResult<Variable> {
 }
 
 /// Subtracts one Variable from another.
-fn sub(nodes: &[Variable]) -> EvalResult<Variable> {
+fn sub(nodes: &[Variable]) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -249,7 +207,7 @@ fn sub(nodes: &[Variable]) -> EvalResult<Variable> {
     }
 }
 /// Divides one Variable by another.
-fn div(nodes: &[Variable]) -> EvalResult<Variable> {
+fn div(nodes: &[Variable]) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -287,7 +245,7 @@ fn div(nodes: &[Variable]) -> EvalResult<Variable> {
 }
 
 /// Multiplies one Variable by another.
-fn mult(nodes: &[Variable]) -> EvalResult<Variable> {
+fn mult(nodes: &[Variable]) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -328,17 +286,26 @@ fn type_of<T>(_: &T) -> String {
 }
 
 // Extracts field/index from wanted Variable.
-fn extract(nodes: &[Variable]) -> EvalResult<Variable> {
-    assert_eq!(nodes.len(), 2);
+fn extract(nodes: &[Variable]) -> Result<Variable> {
+    if nodes.len() > 3 && nodes.len() < 2 {
+        return Err(Error::new_eval_internal(
+            String::from("extract"),
+            format!("invalid len of nodes: {}", nodes.len()),
+        ));
+    }
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
-    v1.extract(v2)
-        .map_err(|err| Error::new_eval_internal(String::from("extract"), err))
+    let deep = iter
+        .next()
+        .and_then(|f| Some(f.is_true()))
+        .unwrap_or_default(); // optional argument
+
+    v1.extract(v2, deep)
 }
 
 // Defines new variable and writes it to a state.
-fn define(nodes: &[Variable], state: &mut Engine) -> EvalResult<Variable> {
+fn define(nodes: &[Variable], state: &mut Engine) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -358,7 +325,7 @@ fn define(nodes: &[Variable], state: &mut Engine) -> EvalResult<Variable> {
 }
 
 // Returns declared variable.
-fn get(nodes: &[Variable], state: &Engine) -> EvalResult<Variable> {
+fn get(nodes: &[Variable], state: &Engine) -> Result<Variable> {
     let v = parse_single_param::<String>(nodes)
         .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
 
@@ -369,7 +336,7 @@ fn get(nodes: &[Variable], state: &Engine) -> EvalResult<Variable> {
 }
 
 // Returns Variable::Object parsed from json-like string.
-fn object(nodes: &[Variable]) -> EvalResult<Variable> {
+fn object(nodes: &[Variable]) -> Result<Variable> {
     let v = parse_single_param::<String>(nodes)
         .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
 
@@ -385,7 +352,7 @@ fn object(nodes: &[Variable]) -> EvalResult<Variable> {
 }
 
 // Returns Variable::Json.
-fn json(nodes: &[Variable]) -> EvalResult<Variable> {
+fn json(nodes: &[Variable]) -> Result<Variable> {
     let v = parse_single_param::<String>(nodes)
         .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
     let obj: Value = serde_json::from_str(&v)
@@ -394,7 +361,7 @@ fn json(nodes: &[Variable]) -> EvalResult<Variable> {
 }
 
 // Performs GET http request, returns Variable::Json.
-fn http(nodes: &[Variable]) -> EvalResult<Variable> {
+fn http(nodes: &[Variable]) -> Result<Variable> {
     let url = parse_single_param::<String>(nodes)
         .map_err(|err| Error::new_eval_internal(String::from("http"), err.to_string()))?;
 
@@ -405,13 +372,13 @@ fn http(nodes: &[Variable]) -> EvalResult<Variable> {
     Ok(Variable::Json(body))
 }
 
-fn log(nodes: &[Variable]) -> EvalResult<Variable> {
+fn log(nodes: &[Variable]) -> Result<Variable> {
     info!("value of nods: {:?}", nodes);
     Ok(Variable::None)
 }
 
 /// Parses single Variable to given type.
-fn parse_single_param<T>(nodes: &[Variable]) -> EvalResult<T>
+fn parse_single_param<T>(nodes: &[Variable]) -> Result<T>
 where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
@@ -426,7 +393,7 @@ where
 }
 
 /// Parses Variable to given type.
-fn parse_type<T>(v: &Variable) -> EvalResult<T>
+fn parse_type<T>(v: &Variable) -> Result<T>
 where
     T: std::str::FromStr + std::fmt::Debug,
     <T as std::str::FromStr>::Err: std::fmt::Debug,
@@ -441,20 +408,6 @@ where
         "parse_type".to_string(),
         "param is not a Variable::String".to_string(),
     ))
-}
-
-/// Function creates new engine and calls fire method for given Definition.
-pub fn evaluate_data(data: &InputData, ef: &EvalForest) -> EvalResult<Variable> {
-    let mut e = Engine::new(Variable::from_input_data(data));
-    e.fire(ef)?;
-    Ok(e.get(String::from("OUT"))
-        .ok_or_else(|| {
-            Error::new_eval_internal(
-                String::from("evaluate_data"),
-                String::from("There is not OUT variable!!!"),
-            )
-        })?
-        .clone())
 }
 
 /// All supported keyword that can be used in steps declarations.
@@ -659,7 +612,7 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use super::{EvalResult, Lexer};
+    use super::{Lexer, Result};
     use crate::lang::{
         engine::{Definition, Engine},
         lexer::{Keyword, Node, Parser, Token},
@@ -877,7 +830,7 @@ mod tests {
         )
     }
 
-    fn fire(def: Definition, state: &mut Engine) -> EvalResult<()> {
+    fn fire(def: Definition, state: &mut Engine) -> Result<()> {
         for step in def {
             let tokens = Lexer::new(&step).make_tokens();
             let root = Parser::new(tokens).parse();
@@ -1075,6 +1028,15 @@ mod tests {
             String::from("DEFINE(var2, EXTRACT(GET(var), 3))"),
         ]);
         test(def, "var2".to_string(), Variable::String(String::from("4")));
+    }
+
+    #[test]
+    fn test_parse_array_define_extract_deep() {
+        let def = Definition::new(vec![
+            String::from("DEFINE(var, VEC(1,VEC(1,VEC(1, VEC(1, 2)))))"),
+            String::from("DEFINE(var2, EXTRACT(GET(var), 1, BOOL(true)))"),
+        ]);
+        test(def, "var2".to_string(), Variable::String(String::from("2")));
     }
 
     #[test]

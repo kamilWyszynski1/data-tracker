@@ -7,26 +7,36 @@ use crate::{
     error::types::{Error, Result},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq)]
 pub struct EvalForest {
-    roots: Vec<Node>,
+    pub roots: Vec<Node>,
+    pub subtrees: HashMap<String, Vec<Node>>,
 }
 
 impl EvalForest {
-    pub fn default() -> Self {
-        EvalForest { roots: vec![] }
-    }
-
     pub fn from_definition(def: &Definition) -> Self {
         let mut roots = vec![];
-        for step in def.clone().into_iter() {
-            assert_eq!(step.matches('(').count(), step.matches(')').count());
-            let tokens = Lexer::new(&step).make_tokens();
-            let root = Parser::new(tokens).parse();
-            roots.push(root);
+
+        // parse base steps in Definition.
+        for step in &def.steps {
+            roots.push(Parser::new(Lexer::new(step).make_tokens()).parse());
         }
-        EvalForest { roots }
+
+        let mut subtrees = HashMap::default();
+        // parse subtrees in Definition.
+        for subtree in def.subtrees.as_ref().unwrap_or(&vec![]) {
+            let mut roots = vec![];
+
+            // parse base steps in Definition.
+            for step in &subtree.definition.steps {
+                roots.push(Parser::new(Lexer::new(step).make_tokens()).parse());
+            }
+            subtrees.insert(subtree.name.clone(), roots);
+        }
+
+        EvalForest { roots, subtrees }
     }
 
     /// Serializes whole tree to json string.
@@ -53,9 +63,10 @@ impl IntoIterator for EvalForest {
 
 /// Function creates new engine and calls fire method for given Definition.
 pub fn evaluate_data(data: &InputData, ef: &EvalForest) -> Result<Variable> {
-    let mut e = Engine::new(Variable::from_input_data(data));
-    e.fire(ef)?;
-    Ok(e.get(String::from("OUT"))
+    let mut engine = Engine::new(Variable::from_input_data(data), ef.clone());
+    engine.fire()?;
+    Ok(engine
+        .get("OUT")
         .ok_or_else(|| {
             Error::new_eval_internal(
                 String::from("evaluate_data"),

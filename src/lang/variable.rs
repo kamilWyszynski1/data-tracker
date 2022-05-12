@@ -25,6 +25,17 @@ impl Variable {
         }
     }
 
+    pub fn to_str(&self) -> Result<&str> {
+        match self {
+            Variable::String(string) => Ok(&string),
+            _ => Err(Error::new_internal(
+                String::from("Variable::to_str"),
+                String::from(""),
+                String::from("Variable cannot be converted to str"),
+            )),
+        }
+    }
+
     /// Returns true if Variable is: Bool(true), Int(1), Float(1.0);
     pub fn is_true(&self) -> bool {
         match self {

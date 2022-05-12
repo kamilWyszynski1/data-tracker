@@ -4,13 +4,29 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// Helper definition that can be run inside main tree.
+/// IN and OUT type of SubTree is always the same.
+pub struct SubTree {
+    pub name: String,
+    pub input_type: Option<String>,
+    pub definition: Definition,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Definition {
     pub steps: Vec<String>,
+    pub subtrees: Option<Vec<SubTree>>,
 }
 
 impl Definition {
     pub fn new(steps: Vec<String>) -> Self {
-        Definition { steps }
+        for step in &steps {
+            assert_eq!(step.matches('(').count(), step.matches(')').count())
+        }
+        Definition {
+            steps,
+            subtrees: None,
+        }
     }
 }
 
@@ -25,12 +41,14 @@ impl IntoIterator for Definition {
 
 pub struct Engine {
     variables: HashMap<String, Variable>,
+    eval_forest: EvalForest,
 }
 
 impl Engine {
     pub fn default() -> Self {
         Engine {
             variables: HashMap::new(),
+            eval_forest: EvalForest::default(),
         }
     }
 
@@ -43,24 +61,40 @@ impl Engine {
     /// a evaluation that will happen in engine. User should
     /// write wanted data to OUT at last as this variable will
     /// be taken out from Engine after all.
-    pub fn new(in_var: Variable) -> Self {
+    pub fn new(in_var: Variable, eval_forest: EvalForest) -> Self {
         let mut variables = HashMap::new();
         variables.insert(String::from("IN"), in_var.clone());
         variables.insert(String::from("OUT"), in_var);
-        Engine { variables }
+        Engine {
+            variables,
+            eval_forest,
+        }
+    }
+
+    pub fn new_for_subtree(
+        in_var: Variable,
+        mut variables: HashMap<String, Variable>,
+        eval_forest: EvalForest,
+    ) -> Self {
+        variables.insert(String::from("IN"), in_var.clone());
+        variables.insert(String::from("OUT"), in_var);
+        Engine {
+            variables,
+            eval_forest,
+        }
     }
 
     pub fn set(&mut self, key: String, v: Variable) {
         self.variables.insert(key, v);
     }
-    pub fn get(&self, key: String) -> Option<&Variable> {
-        self.variables.get(&key)
+    pub fn get(&self, key: &str) -> Option<&Variable> {
+        self.variables.get(key)
     }
 
     /// Takes definition run it step by step.
-    pub fn fire(&mut self, ef: &EvalForest) -> Result<()> {
-        for root in ef.clone().into_iter() {
-            root.eval(self)?;
+    pub fn fire(&mut self) -> Result<()> {
+        for root in self.eval_forest.roots.clone().into_iter() {
+            root.eval(&mut self.variables, &self.eval_forest.subtrees)?;
         }
         Ok(())
     }

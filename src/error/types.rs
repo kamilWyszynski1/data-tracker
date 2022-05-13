@@ -6,7 +6,7 @@ use std::result::Result as StdResult;
 /// Wrapper for Result from standard library to be used across application.
 pub type Result<T> = StdResult<T, Error>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EvalError {
     InvalidType {
         operation: String,
@@ -39,7 +39,7 @@ impl EvalError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PersistanceError {
     /// Indicates on internal errors like db connection, invalid query.
     Internal { msg: String, err: String },
@@ -67,7 +67,7 @@ impl Display for PersistanceError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 /// Enum for handling errors for whole application.
 pub enum Error {
     Eval(EvalError),

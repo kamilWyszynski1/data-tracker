@@ -157,22 +157,6 @@ fn add(nodes: &[Variable]) -> Result<Variable> {
                 is_float = true;
             }
             Variable::Int(i) => sum += i as f32,
-            Variable::String(string_value) => match string_value.parse::<f32>() {
-                Ok(f32_value) => {
-                    sum += f32_value;
-                    is_float = true;
-                }
-                Err(_) => match string_value.parse::<isize>() {
-                    Ok(isize_value) => sum += isize_value as f32,
-                    Err(_) => {
-                        return Err(Error::new_eval_invalid_type(
-                            String::from("add"),
-                            type_of(n),
-                            String::from("Variable::Float or Variable::Int"),
-                        ))
-                    }
-                },
-            },
             _ => {
                 return Err(Error::new_eval_invalid_type(
                     String::from("add"),
@@ -425,39 +409,59 @@ fn run_subtree_for_each(
                     },
                 );
                 engine.fire()?;
-                new_vector.push(
-                    engine
-                        .get("OUT")
-                        .ok_or(Error::new_eval_internal(
-                            String::from("run_subtree_for_each"),
-                            format!("missing OUT variable in {} subtree engine", subtree_name),
-                        ))?
-                        .clone(),
-                );
+
+                engine
+                    .get("OUT")
+                    .ok_or(Error::new_eval_internal(
+                        String::from("run_subtree_for_each"),
+                        format!("missing OUT variable in {} subtree engine", subtree_name),
+                    ))
+                    .and_then(|out| {
+                        if !out.equals_type(var) {
+                            return Err(Error::new_eval_internal(
+                                String::from("run_subtree_for_each"),
+                                format!("invalid type of OUT variable: {:?}", out),
+                            ));
+                        }
+                        Ok(out.clone())
+                    })
+                    .and_then(|out| {
+                        new_vector.push(out);
+                        Ok(())
+                    })?;
             }
             Ok(Variable::Vector(new_vector))
         }
         Variable::Object(object) => {
             let mut new_map = HashMap::new();
-            for (key, value) in object {
+            for (key, var) in object {
                 let mut engine = Engine::new(
-                    value.clone(),
+                    var.clone(),
                     EvalForest {
                         roots: subtree.clone(),
                         subtrees: HashMap::new(),
                     },
                 );
                 engine.fire()?;
-                new_map.insert(
-                    key.clone(),
-                    engine
-                        .get("OUT")
-                        .ok_or(Error::new_eval_internal(
-                            String::from("run_subtree_for_each"),
-                            format!("missing OUT variable in {} subtree engine", subtree_name),
-                        ))?
-                        .clone(),
-                );
+                engine
+                    .get("OUT")
+                    .ok_or(Error::new_eval_internal(
+                        String::from("run_subtree_for_each"),
+                        format!("missing OUT variable in {} subtree engine", subtree_name),
+                    ))
+                    .and_then(|out| {
+                        if !out.equals_type(var) {
+                            return Err(Error::new_eval_internal(
+                                String::from("run_subtree_for_each"),
+                                format!("invalid type of OUT variable: {:?}", out),
+                            ));
+                        }
+                        Ok(out.clone())
+                    })
+                    .and_then(|out| {
+                        new_map.insert(key.clone(), out);
+                        Ok(())
+                    })?;
             }
             Ok(Variable::Object(new_map))
         }
@@ -706,11 +710,14 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::{Lexer, Result};
-    use crate::lang::{
-        engine::{Definition, Engine, SubTree},
-        eval::EvalForest,
-        lexer::{Keyword, Node, Parser, Token},
-        variable::Variable,
+    use crate::{
+        error::types::Error,
+        lang::{
+            engine::{Definition, Engine, SubTree},
+            eval::EvalForest,
+            lexer::{Keyword, Node, Parser, Token},
+            variable::Variable,
+        },
     };
     use serde_json::Value;
     use std::collections::HashMap;
@@ -1217,7 +1224,7 @@ mod tests {
 
     #[test]
     fn test_run_subtree_for_each() {
-        env_logger::try_init();
+        // VECTOR TEST.
         let definition = Definition {
             steps: vec![String::from(
                 "DEFINE(OUT, RunSubtreeForEach(testsubtree, VEC(GET(IN), INT(1), INT(2), INT(3))))",
@@ -1243,6 +1250,85 @@ mod tests {
                 Variable::Int(12),
                 Variable::Int(13)
             ])
+        );
+
+        // OBJECT TEST.
+        let map_str = r#"
+        {
+            "kid": 1,
+            "kty": 2,
+            "use": 3,
+            "n": 4,
+            "e": 5
+        }"#;
+        let t = format!("OBJECT('{}')", map_str);
+
+        let definition = Definition {
+            steps: vec![
+                format!("DEFINE(var, RunSubtreeForEach(testsubtree, {}))", t,),
+                String::from("DEFINE(OUT, RunSubtreeForEach(testsubtree2, GET(var)))"),
+            ],
+            subtrees: Some(vec![
+                SubTree {
+                    name: String::from("testsubtree"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
+                        subtrees: None,
+                    },
+                },
+                SubTree {
+                    name: String::from("testsubtree2"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, MULT(GET(IN), INT(10)))")],
+                        subtrees: None,
+                    },
+                },
+            ]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert_eq!(
+            engine.get("OUT").expect("there's not OUT variable"),
+            &Variable::Object(HashMap::from([
+                (String::from("kid"), Variable::Int(110)),
+                (String::from("kty"), Variable::Int(120)),
+                (String::from("use"), Variable::Int(130)),
+                (String::from("n"), Variable::Int(140)),
+                (String::from("e"), Variable::Int(150)),
+            ]))
         )
+    }
+
+    #[test]
+    fn test_run_subtree_for_each_invalid_type() {
+        let definition = Definition {
+            steps: vec![String::from(
+                "DEFINE(OUT, RunSubtreeForEach(testsubtree, VEC(GET(IN), INT(1), INT(2), INT(3))))",
+            )],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![String::from("DEFINE(OUT, FLOAT(1.0))")],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        let result = engine.fire();
+        assert!(result.is_err());
+        assert_eq!(
+            result.err().unwrap(),
+            Error::new_eval_internal(
+                String::from("run_subtree_for_each"),
+                String::from("invalid type of OUT variable: Float(1.0)"),
+            )
+        );
     }
 }

@@ -45,6 +45,20 @@ impl Variable {
             _ => false,
         }
     }
+
+    pub fn equals_type(&self, v2: &Self) -> bool {
+        match (self, v2) {
+            (Variable::None, Variable::None) => true,
+            (Variable::Bool(_), Variable::Bool(_)) => true,
+            (Variable::Int(_), Variable::Int(_)) => true,
+            (Variable::Float(_), Variable::Float(_)) => true,
+            (Variable::String(_), Variable::String(_)) => true,
+            (Variable::Vector(_), Variable::Vector(_)) => true,
+            (Variable::Object(_), Variable::Object(_)) => true,
+            (Variable::Json(_), Variable::Json(_)) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Variable {

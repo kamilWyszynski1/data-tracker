@@ -101,6 +101,13 @@ impl Node {
         match self.value {
             NodeEnum::None => todo!(),
             NodeEnum::Keyword(ref keyword) => {
+                // must be checked before further evaluation.
+                if let Keyword::If = keyword {
+                    if !if_check(&self.nodes, state, subtrees)? {
+                        return Ok(Variable::None);
+                    }
+                }
+
                 let nodes = self
                     .nodes
                     .iter()
@@ -123,7 +130,8 @@ impl Node {
                     Keyword::Object => object(&nodes),
                     Keyword::HTTP => http(&nodes),
                     Keyword::Log => log(&nodes),
-                    Keyword::RunSubtreeForEach => run_subtree_for_each(&nodes, state, subtrees),
+                    Keyword::RunSubtreeForEach => run_subtree_for_each(&nodes, subtrees),
+                    Keyword::If => if_return(&nodes),
                     Keyword::None => panic!("should not be reached"),
                 }
             }
@@ -309,6 +317,7 @@ fn extract(nodes: &[Variable]) -> Result<Variable> {
 
 // Defines new variable and writes it to a state.
 fn define(nodes: &[Variable], state: &mut HashMap<String, Variable>) -> Result<Variable> {
+    debug!("define - nodes: {:?}", nodes);
     assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
@@ -333,7 +342,7 @@ fn get(nodes: &[Variable], state: &HashMap<String, Variable>) -> Result<Variable
         .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
 
     let g = state.get(&v).ok_or_else(|| {
-        Error::new_eval_internal(String::from("get"), String::from("variable not found"))
+        Error::new_eval_internal(String::from("get"), format!("variable: {} not found", v))
     })?;
     Ok(g.clone())
 }
@@ -380,9 +389,10 @@ fn log(nodes: &[Variable]) -> Result<Variable> {
     Ok(Variable::None)
 }
 
+/// Performs subtree run on each elements of Vector/Object, other types are not supported.
+/// Input and Output type of Variable must match.
 fn run_subtree_for_each(
     nodes: &[Variable],
-    state: &mut HashMap<String, Variable>,
     subtrees: &HashMap<String, Vec<Node>>,
 ) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
@@ -409,7 +419,6 @@ fn run_subtree_for_each(
                     },
                 );
                 engine.fire()?;
-
                 engine
                     .get("OUT")
                     .ok_or(Error::new_eval_internal(
@@ -472,6 +481,24 @@ fn run_subtree_for_each(
     }
 }
 
+/// Function checks *first* element of nodes if can be evaluated to 'true'.
+/// If so, second arguments as some operation will be run.
+fn if_check(
+    nodes: &[Node],
+    state: &mut HashMap<String, Variable>,
+    subtrees: &HashMap<String, Vec<Node>>,
+) -> Result<bool> {
+    debug!("if_function - nodes: {:?}", nodes);
+    // eval first node which is conditional value.
+    nodes[0].eval(state, subtrees).and_then(|v| Ok(v.is_true()))
+}
+
+/// Returns value evaluated after 'if_check'.
+fn if_return(nodes: &[Variable]) -> Result<Variable> {
+    assert_eq!(nodes.len(), 2);
+    Ok(nodes[1].clone())
+}
+
 /// Parses single Variable to given type.
 fn parse_single_param<T>(nodes: &[Variable]) -> Result<T>
 where
@@ -525,6 +552,8 @@ pub enum Keyword {
     HTTP, // performs http request, has to return Variable::Json.
     Log,  // logs given Variable.
     RunSubtreeForEach,
+
+    If, // conditional run: IF(BOOL(true), RunSubtreeForEach(subtree_name, GET(IN))).
 }
 
 impl Keyword {
@@ -546,6 +575,7 @@ impl Keyword {
             "http" => Self::HTTP,
             "log" => Self::Log,
             "runsubtreeforeach" => Self::RunSubtreeForEach,
+            "if" => Self::If,
             _ => Self::None,
         };
         if s == Self::None {
@@ -1329,6 +1359,147 @@ mod tests {
                 String::from("run_subtree_for_each"),
                 String::from("invalid type of OUT variable: Float(1.0)"),
             )
+        );
+    }
+
+    #[test]
+    fn test_if_function() {
+        env_logger::try_init();
+
+        let def = Definition::new(vec![String::from("DEFINE(var, IF(BOOL(true), INT(1)))")]);
+        test(def, String::from("var"), Variable::Int(1));
+
+        let def = Definition::new(vec![String::from("DEFINE(var, IF(BOOL(false), INT(1)))")]);
+        test(def, String::from("var"), Variable::None);
+
+        let def = Definition::new(vec![
+            String::from("DEFINE(IN, VEC(1,2,3,4))"),
+            String::from("DEFINE(var, IF(BOOL(true), GET(IN)))"),
+        ]);
+        test(
+            def,
+            String::from("var"),
+            Variable::Vector(vec![
+                Variable::String(String::from("1")),
+                Variable::String(String::from("2")),
+                Variable::String(String::from("3")),
+                Variable::String(String::from("4")),
+            ]),
+        );
+    }
+
+    #[test]
+    fn test_if_function_with_subtree() {
+        let definition = Definition {
+            steps: vec![String::from(
+                "DEFINE(OUT, IF(INT(1), RunSubtreeForEach(testsubtree, VEC(GET(IN), INT(1), INT(2), INT(3)))))",
+            )],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert_eq!(
+            engine.get("OUT").expect("there's not OUT variable"),
+            &Variable::Vector(vec![
+                Variable::Int(20),
+                Variable::Int(11),
+                Variable::Int(12),
+                Variable::Int(13)
+            ])
+        );
+    }
+
+    #[test]
+    fn test_if_function_without_define() {
+        let definition = Definition {
+            steps: vec![String::from("IF(INT(1), DEFINE(var, INT(100)))")],
+            subtrees: None,
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert_eq!(engine.get("var").unwrap(), &Variable::Int(100));
+
+        let definition = Definition {
+            steps: vec![String::from("IF(INT(123), DEFINE(var, INT(100)))")],
+            subtrees: None,
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert!(engine.get("var").is_none());
+
+        let definition = Definition {
+            steps: vec![String::from("IF(BOOL(true), DEFINE(var, INT(100)))")],
+            subtrees: None,
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert_eq!(engine.get("var").unwrap(), &Variable::Int(100));
+    }
+
+    #[test]
+    fn test_subtree_conditional_complex() {
+        let definition = Definition {
+            steps: vec![
+                String::from("DEFINE(helper, GET(IN))"),
+                String::from("IF(GET(IN), DEFINE(IN, ADD(GET(IN), INT(100))))"),
+                String::from(
+                    "DEFINE(var, RunSubtreeForEach(subtree1, VEC(INT(10), GET(IN), INT(20))))",
+                ),
+                String::from("DEFINE(OUT, GET(var))"),
+                String::from("IF(GET(helper), DEFINE(OUT, RunSubtreeForEach(subtree2, GET(var))))"),
+            ],
+            subtrees: Some(vec![
+                SubTree {
+                    name: String::from("subtree1"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, MULT(GET(IN), INT(10)))")],
+                        subtrees: None,
+                    },
+                },
+                SubTree {
+                    name: String::from("subtree2"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, DIV(GET(IN), INT(2)))")],
+                        subtrees: None,
+                    },
+                },
+            ]),
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(1), eval_forest.clone());
+        engine.fire().expect("fire failed");
+        assert_eq!(
+            engine.get("OUT").unwrap(),
+            &Variable::Vector(vec![
+                Variable::Int(50),
+                Variable::Int(505),
+                Variable::Int(100),
+            ])
+        );
+
+        let mut engine = Engine::new(Variable::Int(2), eval_forest);
+        engine.fire().expect("fire failed");
+        assert_eq!(
+            engine.get("OUT").unwrap(),
+            &Variable::Vector(vec![
+                Variable::Int(100),
+                Variable::Int(20),
+                Variable::Int(200),
+            ])
         );
     }
 }

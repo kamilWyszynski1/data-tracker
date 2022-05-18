@@ -1,5 +1,5 @@
-use super::{eval::EvalForest, variable::Variable};
-use crate::error::types::Result;
+use super::{eval::EvalForest, lexer::Node, variable::Variable};
+use crate::error::types::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -98,4 +98,35 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+pub fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Variable> {
+    let mut variables = HashMap::new();
+
+    in_var.and_then(|variable| {
+        variables.insert(String::from("IN"), variable.clone());
+        variables.insert(String::from("OUT"), variable);
+        Some(())
+    });
+
+    fire(&eval_forest.roots, &mut variables, &eval_forest.subtrees)?;
+
+    variables
+        .get("OUT")
+        .ok_or(Error::new_eval_internal(
+            String::from("evaluate"),
+            String::from("failed to get 'OUT' variable"),
+        ))
+        .and_then(|v| Ok(v.clone()))
+}
+
+pub fn fire(
+    roots: &[Node],
+    variables: &mut HashMap<String, Variable>,
+    subtrees: &HashMap<String, Vec<Node>>,
+) -> Result<()> {
+    for root in roots {
+        root.eval(variables, subtrees)?;
+    }
+    Ok(())
 }

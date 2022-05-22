@@ -1,3 +1,4 @@
+use super::engine::fire_subtree;
 use super::{engine::Engine, variable::Variable};
 use crate::error::types::{Error, Result};
 use crate::lang::engine::fire;
@@ -5,6 +6,7 @@ use crate::lang::{eval::EvalForest, variable::value_object_to_variable_object};
 use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::{
     collections::HashMap,
     fmt::{self, Display},
@@ -21,6 +23,27 @@ enum NodeEnum {
 impl Default for NodeEnum {
     fn default() -> Self {
         Self::None
+    }
+}
+
+#[derive(Debug, Default)]
+/// Quasi implementation of stack. It'll track calls of subtrees.
+/// Stack will have information about root, current call and wether we should break or not.
+pub struct Stack {
+    stack: VecDeque<String>,
+    pub should_break: bool,
+}
+
+impl Stack {
+    fn push(&mut self, subtree: String) {
+        self.stack.push_back(subtree)
+    }
+
+    fn pop(&mut self) {
+        self.stack.pop_back();
+        if self.stack.len() == 0 {
+            self.should_break = false;
+        }
     }
 }
 
@@ -88,6 +111,15 @@ impl Node {
             .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
     }
 
+    pub fn start_evaluation(
+        &self,
+        variables: &mut HashMap<String, Variable>,
+        subtrees: &HashMap<String, Vec<Node>>,
+    ) -> Result<Variable> {
+        let mut subtree_stack = Stack::default();
+        self.eval(variables, subtrees, &mut subtree_stack)
+    }
+
     /// Evaluates whole tree to a single Variable.
     /// Function can be chained with each other as shown below:
     ///   "VEC(1,BOOL(true),3,FLOAT(4.0))"
@@ -98,10 +130,16 @@ impl Node {
         &self,
         variables: &mut HashMap<String, Variable>,
         subtrees: &HashMap<String, Vec<Node>>,
+        stack: &mut Stack,
     ) -> Result<Variable> {
         match self.value {
-            NodeEnum::None => todo!(),
+            NodeEnum::None => Ok(Variable::None),
             NodeEnum::Keyword(ref keyword) => {
+                if stack.should_break {
+                    stack.pop(); // pop latest subtree from stack.
+                    return Ok(Variable::None);
+                }
+
                 // must be checked before further evaluation.
                 if let Keyword::If = keyword {
                     if !if_check(&self.nodes, variables, subtrees)? {
@@ -112,15 +150,18 @@ impl Node {
                 let nodes = self
                     .nodes
                     .iter()
-                    .map(|n| n.eval(variables, subtrees))
+                    .map(|n| n.eval(variables, subtrees, stack))
                     .collect::<Result<Vec<Variable>>>()?;
+
+                // check number of arguments.
+                keyword.check_arguments_count(&nodes)?;
 
                 match keyword {
                     Keyword::Bool => bool(&nodes),
                     Keyword::Int => int(&nodes),
                     Keyword::Float => float(&nodes),
                     Keyword::Add => add(&nodes),
-                    Keyword::Min => sub(&nodes),
+                    Keyword::Sub => sub(&nodes),
                     Keyword::Div => div(&nodes),
                     Keyword::Mult => mult(&nodes),
                     Keyword::Vec => Ok(Variable::Vector(nodes)),
@@ -131,8 +172,12 @@ impl Node {
                     Keyword::Object => object(&nodes),
                     Keyword::HTTP => http(&nodes),
                     Keyword::Log => log(&nodes),
-                    Keyword::RunSubtree => run_subtree(&nodes, variables, subtrees),
+                    Keyword::RunSubtree => run_subtree(&nodes, variables, subtrees, stack),
                     Keyword::If => if_return(&nodes),
+                    Keyword::Break => {
+                        break_function(stack);
+                        Ok(Variable::None)
+                    }
                     Keyword::None => panic!("should not be reached"),
                 }
             }
@@ -183,7 +228,6 @@ fn add(nodes: &[Variable]) -> Result<Variable> {
 
 /// Subtracts one Variable from another.
 fn sub(nodes: &[Variable]) -> Result<Variable> {
-    assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
@@ -220,7 +264,6 @@ fn sub(nodes: &[Variable]) -> Result<Variable> {
 }
 /// Divides one Variable by another.
 fn div(nodes: &[Variable]) -> Result<Variable> {
-    assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
@@ -258,7 +301,6 @@ fn div(nodes: &[Variable]) -> Result<Variable> {
 
 /// Multiplies one Variable by another.
 fn mult(nodes: &[Variable]) -> Result<Variable> {
-    assert_eq!(nodes.len(), 2);
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
@@ -299,12 +341,6 @@ fn type_of<T>(_: &T) -> String {
 
 // Extracts field/index from wanted Variable.
 fn extract(nodes: &[Variable]) -> Result<Variable> {
-    if nodes.len() > 3 && nodes.len() < 2 {
-        return Err(Error::new_eval_internal(
-            String::from("extract"),
-            format!("invalid len of nodes: {}", nodes.len()),
-        ));
-    }
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
@@ -319,7 +355,7 @@ fn extract(nodes: &[Variable]) -> Result<Variable> {
 // Defines new variable and writes it to a state.
 fn define(nodes: &[Variable], state: &mut HashMap<String, Variable>) -> Result<Variable> {
     debug!("define - nodes: {:?}", nodes);
-    assert_eq!(nodes.len(), 2);
+
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap().to_owned();
@@ -390,24 +426,39 @@ fn log(nodes: &[Variable]) -> Result<Variable> {
     Ok(Variable::None)
 }
 
+/// Max times when 'RunSubtree' can be called in a loop.
+const MAX_SUBTREE_STACK: usize = 100;
+
 /// Performs subtree run on each elements of Vector/Object, other types are not supported.
 /// Input and Output type of Variable must match.
 fn run_subtree(
     nodes: &[Variable],
     variables: &mut HashMap<String, Variable>,
     subtrees: &HashMap<String, Vec<Node>>,
+    stack: &mut Stack,
 ) -> Result<Variable> {
-    assert_eq!(nodes.len(), 1); // subtree name.
+    if stack.stack.len() == MAX_SUBTREE_STACK {
+        return Err(Error::new_eval_internal(
+            String::from("run_subtree"),
+            String::from("stack overflow"),
+        ));
+    }
 
     let mut iter = nodes.iter();
     let subtree_name = iter.next().unwrap().to_str()?;
+
+    debug!("run_subtree - running {} subtree", subtree_name);
+
     subtrees
         .get(subtree_name)
         .ok_or(Error::new_eval_internal(
             String::from("run_subtree_for_each"),
             format!("invalid {} subtree", subtree_name),
         ))
-        .and_then(|subtree| fire(subtree, variables, subtrees))
+        .and_then(|subtree| {
+            stack.push(subtree_name.to_string()); // add subtree call to
+            fire_subtree(subtree, variables, subtrees, stack)
+        })
         .map(|_| Variable::None)
 }
 
@@ -420,12 +471,17 @@ fn if_check(
 ) -> Result<bool> {
     debug!("if_function - nodes: {:?}", nodes);
     // eval first node which is conditional value.
-    nodes[0].eval(state, subtrees).and_then(|v| Ok(v.is_true()))
+    nodes[0]
+        .start_evaluation(state, subtrees)
+        .and_then(|v| Ok(v.is_true()))
+}
+
+fn break_function(stack: &mut Stack) {
+    stack.should_break = true
 }
 
 /// Returns value evaluated after 'if_check'.
 fn if_return(nodes: &[Variable]) -> Result<Variable> {
-    assert_eq!(nodes.len(), 2);
     Ok(nodes[1].clone())
 }
 
@@ -476,13 +532,16 @@ pub enum Keyword {
     Int,
     Float,
     Add,
-    Min,
+    Sub,
     Div,
     Mult,
     HTTP, // performs http request, has to return Variable::Json.
     Log,  // logs given Variable.
     //TODO: add break command.
-    RunSubtree, // takes 1 argument, subtree name: RunSubtree(subtree_name)
+    RunSubtree, // takes 1 argument, subtree name: RunSubtree(subtree_name).
+    // Takes no arguments, breaks from RunSubtree.
+    // If RunSubtree are nested it'll break to root point.
+    Break,
 
     If, // conditional run: IF(BOOL(true), RunSubtree(subtree_name)).
 }
@@ -499,13 +558,14 @@ impl Keyword {
             "int" => Self::Int,
             "float" => Self::Float,
             "add" => Self::Add,
-            "min" => Self::Min,
+            "sub" => Self::Sub,
             "div" => Self::Div,
             "mult" => Self::Mult,
             "object" => Self::Object,
             "http" => Self::HTTP,
             "log" => Self::Log,
             "runsubtree" => Self::RunSubtree,
+            "break" => Self::Break,
             "if" => Self::If,
             _ => Self::None,
         };
@@ -513,6 +573,68 @@ impl Keyword {
             return None;
         }
         Some(s)
+    }
+
+    /// Returns error if there's invalid number of arguments for given Keyword.
+    fn check_arguments_count(&self, nodes: &[Variable]) -> Result<()> {
+        let wanted = match self {
+            Keyword::None | Keyword::Break => 0,
+            Keyword::Get
+            | Keyword::Json
+            | Keyword::Object
+            | Keyword::Bool
+            | Keyword::Int
+            | Keyword::Float
+            | Keyword::HTTP
+            | Keyword::Log
+            | Keyword::RunSubtree => 1,
+            Keyword::Define
+            | Keyword::Add
+            | Keyword::Sub
+            | Keyword::Div
+            | Keyword::Mult
+            | Keyword::If => 2,
+            Keyword::Vec => {
+                if nodes.len() == 0 {
+                    return Err(Error::new_eval_internal(
+                        String::from("Keyword::check_arguments_count"),
+                        format!(
+                            "keyword: {:?} - wanted at least 1 argument, got {}",
+                            self,
+                            nodes.len()
+                        ),
+                    ));
+                }
+                nodes.len()
+            }
+            Keyword::Extract => {
+                if nodes.len() > 3 && nodes.len() < 2 {
+                    return Err(Error::new_eval_internal(
+                        String::from("Keyword::check_arguments_count"),
+                        format!(
+                            "keyword: {:?} - wanted 2 or 3 arguments, got {}",
+                            self,
+                            nodes.len()
+                        ),
+                    ));
+                }
+                nodes.len()
+            }
+        };
+        nodes
+            .len()
+            .eq(&wanted)
+            .then(|| 0)
+            .ok_or(Error::new_eval_internal(
+                String::from("Keyword::check_arguments_count"),
+                format!(
+                    "keyword: {:?} - wanted {} arguments, got {}",
+                    self,
+                    wanted,
+                    nodes.len()
+                ),
+            ))
+            .map(|_| ())
     }
 }
 
@@ -646,7 +768,10 @@ impl Parser {
     }
 
     /// Creates Nodes tree from given Tokens.
-    pub fn parse(&mut self) -> Node {
+    pub fn parse(&mut self) -> Option<Node> {
+        if self.done {
+            return None;
+        }
         let mut pt: Node;
         if let Token::Keyword(s) = &self.current_token {
             pt = Node::new_keyword(s.clone());
@@ -657,14 +782,20 @@ impl Parser {
             self.advance();
             match self.current_token {
                 Token::RightBracket => {
-                    return pt;
+                    break;
                 }
                 Token::Var(ref v) => pt.push(Node::new_var(v.clone())),
-                Token::Keyword(_) => pt.push(self.parse()),
+                Token::Keyword(_) => {
+                    self.parse().and_then(|parsed| Some(pt.push(parsed)));
+                }
                 _ => {}
             }
         }
-        pt
+        if pt.value == NodeEnum::None {
+            None
+        } else {
+            Some(pt)
+        }
     }
 }
 
@@ -676,7 +807,7 @@ mod tests {
         lang::{
             engine::{evaluate, fire, Definition, Engine, SubTree},
             eval::EvalForest,
-            lexer::{Keyword, Node, Parser, Token},
+            lexer::{Keyword, Node, NodeEnum, Parser, Token},
             variable::Variable,
         },
     };
@@ -744,7 +875,7 @@ mod tests {
         assert_eq!(tokens, wanted);
 
         let mut parser = Parser::new(tokens);
-        let got = parser.parse();
+        let got = parser.parse().unwrap();
 
         let mut main = Node::new_keyword(Keyword::Define);
         main.push(Node::new_var(String::from("var")));
@@ -768,7 +899,7 @@ mod tests {
         println!("{:?}", tokens);
 
         let mut parser = Parser::new(tokens);
-        let got = parser.parse();
+        let got = parser.parse().unwrap();
         println!("{:?}", got);
 
         let main = Node::new_keyword(Keyword::Define)
@@ -785,7 +916,7 @@ mod tests {
     fn test_lexer_v3() {
         let tokens = Lexer::new("DEFINE(var3, qwdqw)").make_tokens();
         println!("{:?}", tokens);
-        let got = Parser::new(tokens).parse();
+        let got = Parser::new(tokens).parse().unwrap();
 
         let r = Node::new_keyword(Keyword::Define)
             .append(Node::new_var(String::from("var3")))
@@ -802,63 +933,81 @@ mod tests {
         let var = String::from("var");
         let n1 = Node::new_var(var.clone());
         assert_eq!(
-            n1.eval(&mut state, &subtrees).unwrap(),
+            n1.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::String(var)
         );
 
         let n1 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("true")));
         assert_eq!(
-            n1.eval(&mut state, &subtrees).unwrap(),
+            n1.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Bool(true)
         );
 
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
         assert_eq!(
-            n1.eval(&mut state, &subtrees).unwrap(),
+            n1.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Float(2.3)
         );
 
         let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
-        assert_eq!(n2.eval(&mut state, &subtrees).unwrap(), Variable::Int(123));
+        assert_eq!(
+            n2.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(123)
+        );
 
         let n3 = Node::new_keyword(Keyword::Add)
             .append(n1)
             .append(n2.clone());
         assert_eq!(
-            n3.eval(&mut state, &subtrees).unwrap(),
+            n3.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Float(125.3)
         );
 
         let n4 = Node::new_keyword(Keyword::Add)
             .append(n2.clone())
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"))));
-        assert_eq!(n4.eval(&mut state, &subtrees).unwrap(), Variable::Int(323));
+        assert_eq!(
+            n4.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(323)
+        );
 
-        let n5 = Node::new_keyword(Keyword::Min)
+        let n5 = Node::new_keyword(Keyword::Sub)
             .append(n2)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("23"))));
-        assert_eq!(n5.eval(&mut state, &subtrees).unwrap(), Variable::Int(100));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(100)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state, &subtrees).unwrap(), Variable::Int(10));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(10)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n5.eval(&mut state, &subtrees).unwrap(), Variable::Float(8.));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Float(8.)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state, &subtrees).unwrap(), Variable::Int(-10));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(-10)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
         assert_eq!(
-            n5.eval(&mut state, &subtrees).unwrap(),
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Float(-8.)
         );
 
@@ -866,14 +1015,17 @@ mod tests {
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
         assert_eq!(
-            n5.eval(&mut state, &subtrees).unwrap(),
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Float(-50.)
         );
 
         let n5 = Node::new_keyword(Keyword::Mult)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state, &subtrees).unwrap(), Variable::Int(-40));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(-40)
+        );
     }
 
     #[test]
@@ -891,7 +1043,7 @@ mod tests {
             .append(n3)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
         assert_eq!(
-            n4.eval(&mut state, &subtrees).unwrap(),
+            n4.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Float(313.25)
         );
     }
@@ -904,9 +1056,9 @@ mod tests {
         let mut lexer = Lexer::new("VEC(1,BOOL(true),3,FLOAT(4.0))");
         let tokens = lexer.make_tokens();
         let mut parser = Parser::new(tokens);
-        let got = parser.parse();
+        let got = parser.parse().unwrap();
         assert_eq!(
-            got.eval(&mut state, &subtrees).unwrap(),
+            got.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Vector(vec![
                 Variable::String(String::from("1")),
                 Variable::Bool(true),
@@ -922,9 +1074,10 @@ mod tests {
         subtrees: &HashMap<String, Vec<Node>>,
     ) -> Result<()> {
         for step in def {
-            let tokens = Lexer::new(&step).make_tokens();
-            let root = Parser::new(tokens).parse();
-            root.eval(state, subtrees)?;
+            let root = Parser::new(Lexer::new(&step).make_tokens())
+                .parse()
+                .unwrap();
+            root.start_evaluation(state, subtrees)?;
         }
         Ok(())
     }
@@ -1176,7 +1329,7 @@ mod tests {
             format!("DEFINE(var, VEC(1, INT(2), FLOAT(3.2), JSON('{}')))", data).as_str(),
         )
         .make_tokens();
-        let root = Parser::new(tokens).parse();
+        let root = Parser::new(tokens).parse().unwrap();
 
         let serialized = serde_json::to_string(&root).unwrap();
         let deserialized = serde_json::from_str::<Node>(&serialized).unwrap();
@@ -1457,6 +1610,93 @@ mod tests {
         let mut engine = Engine::new(Variable::Int(10), eval_forest);
         engine.fire().expect("fire failed");
         assert_eq!(engine.get("var").unwrap(), &Variable::Int(100));
+    }
+
+    #[test]
+    fn test_break_parse() {
+        let root = Parser::new(Lexer::new("BREAK").make_tokens())
+            .parse()
+            .unwrap();
+        println!("{:?}", root);
+        assert_eq!(root.value, NodeEnum::Keyword(Keyword::Break));
+        assert_eq!(root.nodes.len(), 0);
+    }
+
+    #[test]
+    fn test_break_keyword() {
+        env_logger::try_init();
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![
+                SubTree {
+                    name: String::from("testsubtree"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![
+                            String::from("BREAK"),
+                            String::from("RunSubtree(testsubtree2)"), // should not be called.
+                        ],
+                        subtrees: None,
+                    },
+                },
+                SubTree {
+                    name: String::from("testsubtree2"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, INT(155))")], // should not be called.
+                        subtrees: None,
+                    },
+                },
+            ]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(2)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(2));
+
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![
+                        String::from("DEFINE(IN, SUB(GET(IN), INT(1)))"),
+                        String::from("IF(GET(IN), DEFINE(OUT, GET(IN)))"),
+                        String::from("IF(GET(IN), BREAK)"),
+                        String::from("RunSubtree(testsubtree)"),
+                    ],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(5)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(1));
+
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![
+                        String::from("DEFINE(IN, SUB(GET(IN), INT(1)))"),
+                        String::from("RunSubtree(testsubtree)"),
+                    ],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(5)), &eval_forest)
+            .expect_err("should be stack overflow error");
+        assert_eq!(
+            out,
+            Error::new_eval_internal(String::from("run_subtree"), String::from("stack overflow"))
+        );
     }
 
     // #[test]

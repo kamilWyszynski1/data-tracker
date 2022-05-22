@@ -21,7 +21,7 @@ impl EvalForest {
 
         // parse base steps in Definition.
         for step in &def.steps {
-            roots.push(Parser::new(Lexer::new(step).make_tokens()).parse());
+            roots.push(Parser::new(Lexer::new(step).make_tokens()).parse().unwrap());
         }
 
         let mut subtrees = HashMap::default();
@@ -31,7 +31,7 @@ impl EvalForest {
 
             // parse base steps in Definition.
             for step in &subtree.definition.steps {
-                roots.push(Parser::new(Lexer::new(step).make_tokens()).parse());
+                roots.push(Parser::new(Lexer::new(step).make_tokens()).parse().unwrap());
             }
             subtrees.insert(subtree.name.clone(), roots);
         }

@@ -1,4 +1,8 @@
-use super::{eval::EvalForest, lexer::Node, variable::Variable};
+use super::{
+    eval::EvalForest,
+    lexer::{Node, Stack},
+    variable::Variable,
+};
 use crate::error::types::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -94,7 +98,7 @@ impl Engine {
     /// Takes definition run it step by step.
     pub fn fire(&mut self) -> Result<()> {
         for root in self.eval_forest.roots.clone().into_iter() {
-            root.eval(&mut self.variables, &self.eval_forest.subtrees)?;
+            root.start_evaluation(&mut self.variables, &self.eval_forest.subtrees)?;
         }
         Ok(())
     }
@@ -126,7 +130,19 @@ pub fn fire(
     subtrees: &HashMap<String, Vec<Node>>,
 ) -> Result<()> {
     for root in roots {
-        root.eval(variables, subtrees)?;
+        root.start_evaluation(variables, subtrees)?;
+    }
+    Ok(())
+}
+
+pub fn fire_subtree(
+    roots: &[Node],
+    variables: &mut HashMap<String, Variable>,
+    subtrees: &HashMap<String, Vec<Node>>,
+    stack: &mut Stack,
+) -> Result<()> {
+    for root in roots {
+        root.eval(variables, subtrees, stack)?;
     }
     Ok(())
 }

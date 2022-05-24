@@ -3,6 +3,8 @@ use crate::error::types::{Error, Result};
 use serde_json::Value;
 use std::{collections::HashMap, fmt};
 
+use super::lexer::{Keyword, Node, NodeEnum};
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Variable {
     None, // placeholder for functionalities that does not produce Variables, like DEFINE.
@@ -57,6 +59,67 @@ impl Variable {
             (Variable::Object(_), Variable::Object(_)) => true,
             (Variable::Json(_), Variable::Json(_)) => true,
             _ => false,
+        }
+    }
+
+    pub fn equals_value(&self, v2: &Self) -> bool {
+        match (self, v2) {
+            (Variable::None, Variable::None) => true,
+            (Variable::Bool(v1), Variable::Bool(v2)) => v1 == v2,
+            (Variable::Int(i1), Variable::Int(i2)) => i1 == i2,
+            (Variable::Float(f1), Variable::Float(f2)) => f1 == f2,
+            (Variable::String(s1), Variable::String(s2)) => s1 == s2,
+            (Variable::Vector(v1), Variable::Vector(v2)) => v1 == v2,
+            (Variable::Object(o1), Variable::Object(o2)) => o1 == o2,
+            (Variable::Json(j1), Variable::Json(j2)) => j1 == j2,
+            _ => false,
+        }
+    }
+
+    pub fn equals(&self, v2: &Self) -> bool {
+        self.equals_type(v2) && self.equals_value(v2)
+    }
+
+    pub fn to_node(&self) -> Node {
+        match self {
+            Variable::None => Node {
+                value: NodeEnum::Keyword(Keyword::None),
+                nodes: Default::default(),
+            },
+            Variable::Bool(b) => Node {
+                value: NodeEnum::Keyword(Keyword::Bool),
+                nodes: vec![Node {
+                    value: NodeEnum::Var(b.to_string()),
+                    nodes: vec![],
+                }],
+            },
+            Variable::Int(i) => Node {
+                value: NodeEnum::Keyword(Keyword::Int),
+                nodes: vec![Node {
+                    value: NodeEnum::Var(i.to_string()),
+                    nodes: vec![],
+                }],
+            },
+            Variable::Float(f) => Node {
+                value: NodeEnum::Keyword(Keyword::Float),
+                nodes: vec![Node {
+                    value: NodeEnum::Var(f.to_string()),
+                    nodes: vec![],
+                }],
+            },
+            Variable::String(s) => Node {
+                value: NodeEnum::Var(s.clone()),
+                nodes: vec![],
+            },
+            Variable::Vector(vec) => {
+                let nodes = vec.iter().map(|v| v.clone()).map(|v| v.to_node()).collect();
+                Node {
+                    value: NodeEnum::Keyword(Keyword::Vec),
+                    nodes,
+                }
+            }
+            Variable::Object(_) => todo!(),
+            Variable::Json(_) => todo!(),
         }
     }
 }

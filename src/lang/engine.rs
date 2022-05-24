@@ -134,15 +134,3 @@ pub fn fire(
     }
     Ok(())
 }
-
-pub fn fire_subtree(
-    roots: &[Node],
-    variables: &mut HashMap<String, Variable>,
-    subtrees: &HashMap<String, Vec<Node>>,
-    stack: &mut Stack,
-) -> Result<()> {
-    for root in roots {
-        root.eval(variables, subtrees, stack)?;
-    }
-    Ok(())
-}

@@ -3,7 +3,8 @@ use crate::error::types::{Error, Result};
 use serde_json::Value;
 use std::{collections::HashMap, fmt};
 
-use super::lexer::{Keyword, Node, NodeEnum};
+use super::lexer::Keyword;
+use super::node::{Node, NodeEnum};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Variable {

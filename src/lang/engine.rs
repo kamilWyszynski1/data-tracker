@@ -1,6 +1,6 @@
 use super::{
     eval::EvalForest,
-    lexer::{Node, Stack},
+    node::{Node, Stack},
     variable::Variable,
 };
 use crate::error::types::{Error, Result};

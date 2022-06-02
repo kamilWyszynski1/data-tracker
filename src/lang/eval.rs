@@ -1,6 +1,6 @@
 use super::engine::Engine;
 use super::variable::Variable;
-use super::{engine::Definition, lexer::Node};
+use super::{engine::Definition, node::Node};
 use crate::lang::lexer::{Lexer, Parser};
 use crate::{
     core::task::InputData,

@@ -75,7 +75,7 @@ pub async fn create(
 ) -> TaskCreateResponse {
     info!("definition from request: {:?}", request.definition);
 
-    let tt = TrackingTask::from_task_create_request(request.clone());
+    let tt = TrackingTask::from_task_create_request(request.0);
 
     match tt {
         Ok(tt) => {

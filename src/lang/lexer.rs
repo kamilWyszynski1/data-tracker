@@ -116,6 +116,15 @@ impl Node {
             .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
     }
 
+    fn change_special_function_placeholder(&mut self, replacement: Self) {
+        if self.value == NodeEnum::Var(String::from("X")) {
+            *self = replacement.clone()
+        }
+        for i in 0..self.nodes.len() {
+            self.nodes[i].change_special_function_placeholder(replacement.clone())
+        }
+    }
+
     pub fn start_evaluation(
         &self,
         variables: &mut HashMap<String, Variable>,
@@ -163,6 +172,7 @@ impl Node {
                     Keyword::Map => {
                         return map_function(&self.nodes, variables, subtrees, metadata);
                     }
+                    Keyword::Filter => return filter(&self.nodes, variables, subtrees, metadata),
                     _ => {}
                 }
 
@@ -220,10 +230,14 @@ fn int(nodes: &[Variable]) -> Result<Variable> {
         Error::new_eval_internal(String::from("bool"), err.to_string())
     })?))
 }
+
 fn float(nodes: &[Variable]) -> Result<Variable> {
     Ok(Variable::Float(parse_single_param(nodes)?))
 }
+
 fn add(nodes: &[Variable]) -> Result<Variable> {
+    println!("add: {:?}", nodes);
+
     let mut is_float = false;
     let mut sum: f32 = 0.;
 
@@ -532,12 +546,12 @@ fn neq(nodes: &[Variable]) -> Result<Variable> {
 
 fn map_function(
     nodes: &[Node],
-    state: &mut HashMap<String, Variable>,
+    variables: &mut HashMap<String, Variable>,
     subtrees: &HashMap<String, Vec<Node>>,
     metadata: &mut EvalMetadata,
 ) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
-    let mapped_variable = match nodes[0].start_evaluation(state, subtrees) {
+    let mapped_variable = match nodes[0].start_evaluation(variables, subtrees) {
         Ok(v) => Ok(v),
         Err(e) => match &metadata.mapped_variable {
             Some(v) => Ok(v.clone()),
@@ -553,7 +567,7 @@ fn map_function(
             vec.into_iter()
                 .map(|v| {
                     mapping_node.nodes[0] = v.to_node();
-                    mapping_node.start_evaluation(state, subtrees).unwrap()
+                    mapping_node.start_evaluation(variables, subtrees).unwrap()
                 })
                 .collect(),
         )),
@@ -563,6 +577,42 @@ fn map_function(
             format!(
                 "only vector or object can be mapped, got: {:?}",
                 mapped_variable
+            ),
+        )),
+    }
+}
+
+fn filter(
+    nodes: &[Node],
+    variables: &mut HashMap<String, Variable>,
+    subtrees: &HashMap<String, Vec<Node>>,
+    metadata: &mut EvalMetadata,
+) -> Result<Variable> {
+    assert_eq!(nodes.len(), 2);
+
+    let filtered_variable = nodes[0].start_evaluation(variables, subtrees)?;
+
+    match filtered_variable {
+        Variable::Vector(vec) => Ok(Variable::Vector(
+            vec.iter()
+                .map(|v| v.clone())
+                .filter(|v| {
+                    let mut filtering_node = nodes[1].clone();
+
+                    filtering_node.change_special_function_placeholder(v.to_node());
+                    // filtering_node.nodes[0] = v.to_node();
+                    filtering_node
+                        .start_evaluation(variables, subtrees)
+                        .unwrap()
+                        .is_true()
+                })
+                .collect(),
+        )),
+        _ => Err(Error::new_eval_internal(
+            String::from("map_function"),
+            format!(
+                "only vector or object can be filtered, got: {:?}",
+                filtered_variable
             ),
         )),
     }
@@ -629,7 +679,8 @@ pub enum Keyword {
     // Can be chained like that: Eq(Eq(INT(1), INT(1)), Eq(FLOAT(2.5), FLOAT(2.5))).
     Eq,
     Neq,
-    Map, // can be used for vector/object values mapping: MAP(VEC(1,2,3), ADD(x, INT(4)))
+    Map,    // can be used for vector/object values mapping: MAP(VEC(1,2,3), ADD(x, INT(4)))
+    Filter, // can be used for vector/object values filtering: FILTER(VEC(1,2,3), EQ(X, 2)))
 }
 
 impl Keyword {
@@ -656,6 +707,7 @@ impl Keyword {
             "eq" => Self::Eq,
             "neq" => Self::Neq,
             "map" => Self::Map,
+            "filter" => Self::Filter,
             _ => Self::None,
         };
         if s == Self::None {
@@ -685,7 +737,8 @@ impl Keyword {
             | Keyword::If
             | Keyword::Eq
             | Keyword::Neq
-            | Keyword::Map => 2,
+            | Keyword::Map
+            | Keyword::Filter => 2,
             Keyword::Vec => {
                 if nodes.len() == 0 {
                     return Err(Error::new_eval_internal(
@@ -1832,6 +1885,36 @@ mod tests {
                 Variable::Vector(vec![Variable::Int(8), Variable::Int(9)]),
                 Variable::Vector(vec![Variable::Int(18), Variable::Int(38)]),
             ]),
+        );
+    }
+
+    #[test]
+    fn filter_test() {
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, FILTER(VEC(INT(1), INT(2), INT(3)), EQ(X, INT(2))))",
+        )]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Int(2)]),
+        );
+
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, FILTER(VEC(BOOL(true), BOOL(false), BOOL(true)), EQ(X, BOOL(true))))",
+        )]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Bool(true), Variable::Bool(true)]),
+        );
+
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, FILTER(VEC(INT(1), INT(2), INT(3)), EQ(ADD(X, INT(2)), INT(4))))",
+        )]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Int(2)]),
         );
     }
 }

@@ -35,6 +35,8 @@ tui = "0.17"
 crossterm = "0.22"
 postgres = "0.19.2" # data function.
 tokio-postgres = "0.7.6" # changes monitor.
+syn = "1.0"
+quote = "1.0"
 
 [build-dependencies]
 tonic-build = "0.7.0"

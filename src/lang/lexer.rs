@@ -1,461 +1,15 @@
-use super::{
-    engine::{Definition, Engine},
-    variable::Variable,
-};
-use crate::lang::variable::value_object_to_variable_object;
-use crate::{core::task::InputData, error::types::Error};
+use super::node::{Node, NodeEnum};
+use super::{engine::Engine, variable::Variable};
+use crate::error::types::{Error, Result};
+use crate::lang::{eval::EvalForest, variable::value_object_to_variable_object};
 use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fmt::{self, Display};
-
-pub type EvalResult<T> = Result<T, Error>;
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-/// Enum for Node type.
-enum NodeEnum {
-    None,
-    Keyword(Keyword), // Keyword is a supported function.
-    Var(String),      // Variable name or "default" evaluation of variable which is String.
-}
-
-impl NodeEnum {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct EvalForest {
-    roots: Vec<Node>,
-}
-
-impl EvalForest {
-    pub fn default() -> Self {
-        EvalForest { roots: vec![] }
-    }
-
-    pub fn from_definition(def: &Definition) -> Self {
-        let mut roots = vec![];
-        for step in def.clone().into_iter() {
-            assert_eq!(step.matches('(').count(), step.matches(')').count());
-            let tokens = Lexer::new(&step).make_tokens();
-            let root = Parser::new(tokens).parse();
-            roots.push(root);
-        }
-        EvalForest { roots }
-    }
-
-    /// Serializes whole tree to json string.
-    pub fn to_string(&self) -> EvalResult<String> {
-        serde_json::to_string(self)
-            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
-    }
-
-    /// Loads tree from json string.
-    pub fn from_string(s: &str) -> EvalResult<Self> {
-        serde_json::from_str::<Self>(s)
-            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
-    }
-}
-
-impl IntoIterator for EvalForest {
-    type Item = Node;
-    type IntoIter = <Vec<Node> as IntoIterator>::IntoIter; // so that you don't have to write std::vec::IntoIter, which nobody remembers anyway
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.roots.into_iter()
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-/// Node represents single node in lexer chain.
-/// Struct contains value which is type of Node -> var or keyword.
-/// Vector of nodes are all params that were passed to keyword function and will
-/// be evaluated during Node evaluation.
-pub struct Node {
-    value: NodeEnum,
-    nodes: Vec<Node>,
-}
-
-impl Display for Node {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.value)
-    }
-}
-
-impl Node {
-    /// Returns default value for Node.
-    pub fn default() -> Self {
-        Node {
-            value: NodeEnum::default(),
-            nodes: vec![],
-        }
-    }
-
-    /// Creates new Node with NodeEnum::Keyword type.
-    fn new_keyword(keyword: Keyword) -> Self {
-        Node {
-            value: NodeEnum::Keyword(keyword),
-            nodes: vec![],
-        }
-    }
-
-    /// Creates new Node with NodeEnum::Var type.
-    fn new_var(var: String) -> Self {
-        Node {
-            value: NodeEnum::Var(var),
-            nodes: vec![],
-        }
-    }
-
-    /// Adds nodes to node.
-    fn push(&mut self, pt: Node) {
-        self.nodes.push(pt)
-    }
-
-    /// Appends node to nodes and return Self.
-    fn append(&mut self, n: Node) -> Self {
-        self.push(n);
-        self.clone()
-    }
-
-    /// Serializes whole tree to json string.
-    fn to_string(&self) -> EvalResult<String> {
-        serde_json::to_string(self)
-            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
-    }
-
-    /// Loads tree from json string.
-    fn from_string(s: &str) -> EvalResult<Self> {
-        serde_json::from_str::<Self>(s)
-            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
-    }
-
-    /// Evaluates whole tree to a single Variable.
-    /// Function can be chained with each other as shown below:
-    ///   "VEC(1,BOOL(true),3,FLOAT(4.0))"
-    /// this function will go trough tree created from that declaration
-    /// and evaluate root node and all of nodes below in order to return
-    /// single Variable as a result.
-    pub fn eval(&self, state: &mut Engine) -> EvalResult<Variable> {
-        match self.value {
-            NodeEnum::None => todo!(),
-            NodeEnum::Keyword(ref keyword) => {
-                let nodes = self
-                    .nodes
-                    .iter()
-                    .map(|n| n.eval(state))
-                    .collect::<EvalResult<Vec<Variable>>>()?;
-
-                match keyword {
-                    Keyword::Bool => bool(&nodes),
-                    Keyword::Int => int(&nodes),
-                    Keyword::Float => float(&nodes),
-                    Keyword::Add => add(&nodes),
-                    Keyword::Min => sub(&nodes),
-                    Keyword::Div => div(&nodes),
-                    Keyword::Mult => mult(&nodes),
-                    Keyword::Vec => Ok(Variable::Vector(nodes)),
-                    Keyword::Extract => extract(&nodes),
-                    Keyword::Define => define(&nodes, state),
-                    Keyword::Get => get(&nodes, state),
-                    Keyword::Json => json(&nodes),
-                    Keyword::Object => object(&nodes),
-                    Keyword::HTTP => http(&nodes),
-                    Keyword::Log => log(&nodes),
-                    Keyword::None => panic!("should not be reached"),
-                }
-            }
-            NodeEnum::Var(ref var) => Ok(Variable::String(var.clone())),
-        }
-    }
-}
-
-fn bool(nodes: &[Variable]) -> EvalResult<Variable> {
-    Ok(Variable::Bool(parse_single_param(nodes).map_err(
-        |err| Error::new_eval_internal(String::from("bool"), err.to_string()),
-    )?))
-}
-
-fn int(nodes: &[Variable]) -> EvalResult<Variable> {
-    Ok(Variable::Int(parse_single_param(nodes).map_err(|err| {
-        Error::new_eval_internal(String::from("bool"), err.to_string())
-    })?))
-}
-fn float(nodes: &[Variable]) -> EvalResult<Variable> {
-    Ok(Variable::Float(parse_single_param(nodes)?))
-}
-fn add(nodes: &[Variable]) -> EvalResult<Variable> {
-    let mut is_float = false;
-    let mut sum: f32 = 0.;
-    for n in nodes.iter() {
-        match *n {
-            Variable::Float(f) => {
-                sum += f;
-                is_float = true;
-            }
-            Variable::Int(i) => sum += i as f32,
-            _ => {
-                return Err(Error::new_eval_invalid_type(
-                    String::from("add"),
-                    type_of(n),
-                    String::from("Variable::Float or Variable::Int"),
-                ));
-            }
-        }
-    }
-    if is_float {
-        return Ok(Variable::Float(sum));
-    }
-    Ok(Variable::Int(sum as isize))
-}
-
-/// Subtracts one Variable from another.
-fn sub(nodes: &[Variable]) -> EvalResult<Variable> {
-    assert_eq!(nodes.len(), 2);
-    let mut iter = nodes.iter();
-    let v1 = iter.next().unwrap();
-    let v2 = iter.next().unwrap();
-
-    match v1 {
-        Variable::Float(f) => {
-            if let Variable::Float(f2) = v2 {
-                Ok(Variable::Float(f - f2))
-            } else {
-                Err(Error::new_eval_invalid_type(
-                    String::from("sub"),
-                    type_of(v2),
-                    String::from("Variable::Float"),
-                ))
-            }
-        }
-        Variable::Int(i) => {
-            if let Variable::Int(i2) = v2 {
-                Ok(Variable::Int(i - i2))
-            } else {
-                Err(Error::new_eval_invalid_type(
-                    String::from("add"),
-                    type_of(v2),
-                    String::from("Variable::Int"),
-                ))
-            }
-        }
-        _ => Err(Error::new_eval_invalid_type(
-            String::from("add"),
-            type_of(v1),
-            String::from("Variable::Float or Variable::Int"),
-        )),
-    }
-}
-/// Divides one Variable by another.
-fn div(nodes: &[Variable]) -> EvalResult<Variable> {
-    assert_eq!(nodes.len(), 2);
-    let mut iter = nodes.iter();
-    let v1 = iter.next().unwrap();
-    let v2 = iter.next().unwrap();
-
-    match v1 {
-        Variable::Float(f) => {
-            if let Variable::Float(f2) = v2 {
-                Ok(Variable::Float(f / f2))
-            } else {
-                Err(Error::new_eval_invalid_type(
-                    String::from("add"),
-                    type_of(v2),
-                    String::from("Variable::Float"),
-                ))
-            }
-        }
-        Variable::Int(i) => {
-            if let Variable::Int(i2) = v2 {
-                Ok(Variable::Int(i / i2))
-            } else {
-                Err(Error::new_eval_invalid_type(
-                    String::from("add"),
-                    type_of(v2),
-                    String::from("Variable::Int"),
-                ))
-            }
-        }
-        _ => Err(Error::new_eval_invalid_type(
-            String::from("add"),
-            type_of(v1),
-            String::from("Variable::Float or Variable::Int"),
-        )),
-    }
-}
-
-/// Multiplies one Variable by another.
-fn mult(nodes: &[Variable]) -> EvalResult<Variable> {
-    assert_eq!(nodes.len(), 2);
-    let mut iter = nodes.iter();
-    let v1 = iter.next().unwrap();
-    let v2 = iter.next().unwrap();
-
-    match v1 {
-        Variable::Float(f) => {
-            if let Variable::Float(f2) = v2 {
-                Ok(Variable::Float(f * f2))
-            } else {
-                Err(Error::new_eval_invalid_type(
-                    String::from("add"),
-                    type_of(&v2),
-                    String::from("Variable::Float"),
-                ))
-            }
-        }
-        Variable::Int(i) => {
-            if let Variable::Int(i2) = v2 {
-                Ok(Variable::Int(i * i2))
-            } else {
-                Err(Error::new_eval_invalid_type(
-                    String::from("add"),
-                    type_of(&v2),
-                    String::from("Variable::Int"),
-                ))
-            }
-        }
-        _ => Err(Error::new_eval_invalid_type(
-            String::from("add"),
-            type_of(&v1),
-            String::from("Variable::Float or Variable::Int"),
-        )),
-    }
-}
-fn type_of<T>(_: &T) -> String {
-    std::any::type_name::<T>().to_string()
-}
-
-// Extracts field/index from wanted Variable.
-fn extract(nodes: &[Variable]) -> EvalResult<Variable> {
-    assert_eq!(nodes.len(), 2);
-    let mut iter = nodes.iter();
-    let v1 = iter.next().unwrap();
-    let v2 = iter.next().unwrap();
-    v1.extract(v2)
-        .map_err(|err| Error::new_eval_internal(String::from("extract"), err))
-}
-
-// Defines new variable and writes it to a state.
-fn define(nodes: &[Variable], state: &mut Engine) -> EvalResult<Variable> {
-    assert_eq!(nodes.len(), 2);
-    let mut iter = nodes.iter();
-    let v1 = iter.next().unwrap();
-    let v2 = iter.next().unwrap().to_owned();
-
-    if let Variable::String(s) = v1 {
-        state.set(s.to_string(), v2);
-    } else {
-        return Err(Error::new_eval_invalid_type(
-            String::from("define"),
-            type_of(v1),
-            String::from("Variable::String"),
-        ));
-    }
-
-    Ok(Variable::None)
-}
-
-// Returns declared variable.
-fn get(nodes: &[Variable], state: &Engine) -> EvalResult<Variable> {
-    let v = parse_single_param::<String>(nodes)
-        .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
-
-    let g = state.get(v).ok_or_else(|| {
-        Error::new_eval_internal(String::from("get"), String::from("variable not found"))
-    })?;
-    Ok(g.clone())
-}
-
-// Returns Variable::Object parsed from json-like string.
-fn object(nodes: &[Variable]) -> EvalResult<Variable> {
-    let v = parse_single_param::<String>(nodes)
-        .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
-
-    let obj: Value = serde_json::from_str(&v)
-        .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
-    if !obj.is_object() {
-        return Err(Error::new_eval_internal(
-            String::from("object"),
-            String::from("json Value is not an object"),
-        ));
-    }
-    Ok(value_object_to_variable_object(obj))
-}
-
-// Returns Variable::Json.
-fn json(nodes: &[Variable]) -> EvalResult<Variable> {
-    let v = parse_single_param::<String>(nodes)
-        .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
-    let obj: Value = serde_json::from_str(&v)
-        .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
-    Ok(Variable::Json(obj))
-}
-
-// Performs GET http request, returns Variable::Json.
-fn http(nodes: &[Variable]) -> EvalResult<Variable> {
-    let url = parse_single_param::<String>(nodes)
-        .map_err(|err| Error::new_eval_internal(String::from("http"), err.to_string()))?;
-
-    let body = reqwest::blocking::get(url)
-        .map_err(|err| Error::new_eval_internal(String::from("http"), err.to_string()))?
-        .json()
-        .map_err(|err| Error::new_eval_internal(String::from("http"), err.to_string()))?;
-    Ok(Variable::Json(body))
-}
-
-fn log(nodes: &[Variable]) -> EvalResult<Variable> {
-    info!("value of nods: {:?}", nodes);
-    Ok(Variable::None)
-}
-
-/// Parses single Variable to given type.
-fn parse_single_param<T>(nodes: &[Variable]) -> EvalResult<T>
-where
-    T: std::str::FromStr + std::fmt::Debug,
-    <T as std::str::FromStr>::Err: std::fmt::Debug,
-{
-    let param = nodes.first().ok_or_else(|| {
-        Error::new_eval_internal(
-            "parse_single_param".to_string(),
-            "There's not variable".to_string(),
-        )
-    })?;
-    parse_type(param)
-}
-
-/// Parses Variable to given type.
-fn parse_type<T>(v: &Variable) -> EvalResult<T>
-where
-    T: std::str::FromStr + std::fmt::Debug,
-    <T as std::str::FromStr>::Err: std::fmt::Debug,
-{
-    if let Variable::String(s) = v {
-        let a = s.parse::<T>().map_err(|_| {
-            Error::new_eval_internal("parse_type".to_string(), "Could not parse".to_string())
-        })?;
-        return Ok(a);
-    }
-    Err(Error::new_eval_internal(
-        "parse_type".to_string(),
-        "param is not a Variable::String".to_string(),
-    ))
-}
-
-/// Function creates new engine and calls fire method for given Definition.
-pub fn evaluate_data(data: &InputData, ef: &EvalForest) -> EvalResult<Variable> {
-    let mut e = Engine::new(Variable::from_input_data(data));
-    e.fire(ef)?;
-    Ok(e.get(String::from("OUT"))
-        .ok_or_else(|| {
-            Error::new_eval_internal(
-                String::from("evaluate_data"),
-                String::from("There is not OUT variable!!!"),
-            )
-        })?
-        .clone())
-}
+use std::collections::VecDeque;
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+};
 
 /// All supported keyword that can be used in steps declarations.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -471,11 +25,23 @@ pub enum Keyword {
     Int,
     Float,
     Add,
-    Min,
+    Sub,
     Div,
     Mult,
-    HTTP, // performs http request, has to return Variable::Json.
-    Log,  // logs given Variable.
+    HTTP,       // performs http request, has to return Variable::Json.
+    Log,        // logs given Variable.
+    RunSubtree, // takes 1 argument, subtree name: RunSubtree(subtree_name).
+    // Takes no arguments, breaks from RunSubtree.
+    // If RunSubtree are nested it'll break to root point.
+    Break,
+    If, // conditional run: IF(BOOL(true), RunSubtree(subtree_name)).
+    // Returns true if two Variable are equal.
+    // Can be chained like that: Eq(Eq(INT(1), INT(1)), Eq(FLOAT(2.5), FLOAT(2.5))).
+    Eq,
+    Neq,
+    Map,        // can be used for vector/object values mapping: MAP(VEC(1,2,3), ADD(x, INT(4)))
+    MapInPlace, // works same as Map but do not return variable, modifies given one.
+    Filter,     // can be used for vector/object values filtering: FILTER(VEC(1,2,3), EQ(X, 2)))
 }
 
 impl Keyword {
@@ -490,18 +56,93 @@ impl Keyword {
             "int" => Self::Int,
             "float" => Self::Float,
             "add" => Self::Add,
-            "min" => Self::Min,
+            "sub" => Self::Sub,
             "div" => Self::Div,
             "mult" => Self::Mult,
             "object" => Self::Object,
             "http" => Self::HTTP,
             "log" => Self::Log,
+            "runsubtree" => Self::RunSubtree,
+            "break" => Self::Break,
+            "if" => Self::If,
+            "eq" => Self::Eq,
+            "neq" => Self::Neq,
+            "map" => Self::Map,
+            "mapinplace" => Self::MapInPlace,
+            "filter" => Self::Filter,
             _ => Self::None,
         };
         if s == Self::None {
             return None;
         }
         Some(s)
+    }
+
+    /// Returns error if there's invalid number of arguments for given Keyword.
+    pub fn check_arguments_count(&self, nodes: &[Variable]) -> Result<()> {
+        let wanted = match self {
+            Keyword::None | Keyword::Break => 0,
+            Keyword::Get
+            | Keyword::Json
+            | Keyword::Object
+            | Keyword::Bool
+            | Keyword::Int
+            | Keyword::Float
+            | Keyword::HTTP
+            | Keyword::Log
+            | Keyword::RunSubtree => 1,
+            Keyword::Define
+            | Keyword::Add
+            | Keyword::Sub
+            | Keyword::Div
+            | Keyword::Mult
+            | Keyword::If
+            | Keyword::Eq
+            | Keyword::Neq
+            | Keyword::Map
+            | Keyword::MapInPlace
+            | Keyword::Filter => 2,
+            Keyword::Vec => {
+                if nodes.len() == 0 {
+                    return Err(Error::new_eval_internal(
+                        String::from("Keyword::check_arguments_count"),
+                        format!(
+                            "keyword: {:?} - wanted at least 1 argument, got {}",
+                            self,
+                            nodes.len()
+                        ),
+                    ));
+                }
+                nodes.len()
+            }
+            Keyword::Extract => {
+                if nodes.len() > 3 && nodes.len() < 2 {
+                    return Err(Error::new_eval_internal(
+                        String::from("Keyword::check_arguments_count"),
+                        format!(
+                            "keyword: {:?} - wanted 2 or 3 arguments, got {}",
+                            self,
+                            nodes.len()
+                        ),
+                    ));
+                }
+                nodes.len()
+            }
+        };
+        nodes
+            .len()
+            .eq(&wanted)
+            .then(|| 0)
+            .ok_or(Error::new_eval_internal(
+                String::from("Keyword::check_arguments_count"),
+                format!(
+                    "keyword: {:?} - wanted {} arguments, got {}",
+                    self,
+                    wanted,
+                    nodes.len()
+                ),
+            ))
+            .map(|_| ())
     }
 }
 
@@ -634,8 +275,10 @@ impl Parser {
         }
     }
 
-    /// Creates Nodes tree from given Tokens.
-    pub fn parse(&mut self) -> Node {
+    pub fn parse(&mut self) -> Option<Node> {
+        if self.done {
+            return None;
+        }
         let mut pt: Node;
         if let Token::Keyword(s) = &self.current_token {
             pt = Node::new_keyword(s.clone());
@@ -646,24 +289,34 @@ impl Parser {
             self.advance();
             match self.current_token {
                 Token::RightBracket => {
-                    return pt;
+                    break;
                 }
                 Token::Var(ref v) => pt.push(Node::new_var(v.clone())),
-                Token::Keyword(_) => pt.push(self.parse()),
+                Token::Keyword(_) => {
+                    self.parse().and_then(|parsed| Some(pt.push(parsed)));
+                }
                 _ => {}
             }
         }
-        pt
+        if pt.value == NodeEnum::None {
+            None
+        } else {
+            Some(pt)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{EvalResult, Lexer};
-    use crate::lang::{
-        engine::{Definition, Engine},
-        lexer::{Keyword, Node, Parser, Token},
-        variable::Variable,
+    use super::{Lexer, Result};
+    use crate::{
+        error::types::Error,
+        lang::{
+            engine::{evaluate, Definition, Engine, SubTree},
+            eval::EvalForest,
+            lexer::{Keyword, Node, NodeEnum, Parser, Token},
+            variable::Variable,
+        },
     };
     use serde_json::Value;
     use std::collections::HashMap;
@@ -729,7 +382,7 @@ mod tests {
         assert_eq!(tokens, wanted);
 
         let mut parser = Parser::new(tokens);
-        let got = parser.parse();
+        let got = parser.parse().unwrap();
 
         let mut main = Node::new_keyword(Keyword::Define);
         main.push(Node::new_var(String::from("var")));
@@ -750,11 +403,9 @@ mod tests {
     fn test_lexer_v2() {
         let mut lexer = Lexer::new("DEFINE(var3, EXTRACT(var, use))");
         let tokens = lexer.make_tokens();
-        println!("{:?}", tokens);
 
         let mut parser = Parser::new(tokens);
-        let got = parser.parse();
-        println!("{:?}", got);
+        let got = parser.parse().unwrap();
 
         let main = Node::new_keyword(Keyword::Define)
             .append(Node::new_var(String::from("var3")))
@@ -769,8 +420,7 @@ mod tests {
     #[test]
     fn test_lexer_v3() {
         let tokens = Lexer::new("DEFINE(var3, qwdqw)").make_tokens();
-        println!("{:?}", tokens);
-        let got = Parser::new(tokens).parse();
+        let got = Parser::new(tokens).parse().unwrap();
 
         let r = Node::new_keyword(Keyword::Define)
             .append(Node::new_var(String::from("var3")))
@@ -781,70 +431,111 @@ mod tests {
 
     #[test]
     fn test_eval() {
-        let mut state = Engine::default();
+        let mut state = HashMap::default();
+        let subtrees = HashMap::new();
 
         let var = String::from("var");
         let n1 = Node::new_var(var.clone());
-        assert_eq!(n1.eval(&mut state).unwrap(), Variable::String(var));
+        assert_eq!(
+            n1.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::String(var)
+        );
 
         let n1 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("true")));
-        assert_eq!(n1.eval(&mut state).unwrap(), Variable::Bool(true));
+        assert_eq!(
+            n1.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Bool(true)
+        );
 
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
-        assert_eq!(n1.eval(&mut state).unwrap(), Variable::Float(2.3));
+        assert_eq!(
+            n1.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Float(2.3)
+        );
 
         let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
-        assert_eq!(n2.eval(&mut state).unwrap(), Variable::Int(123));
+        assert_eq!(
+            n2.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(123)
+        );
 
         let n3 = Node::new_keyword(Keyword::Add)
             .append(n1)
             .append(n2.clone());
-        assert_eq!(n3.eval(&mut state).unwrap(), Variable::Float(125.3));
+        assert_eq!(
+            n3.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Float(125.3)
+        );
 
         let n4 = Node::new_keyword(Keyword::Add)
             .append(n2.clone())
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"))));
-        assert_eq!(n4.eval(&mut state).unwrap(), Variable::Int(323));
+        assert_eq!(
+            n4.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(323)
+        );
 
-        let n5 = Node::new_keyword(Keyword::Min)
+        let n5 = Node::new_keyword(Keyword::Sub)
             .append(n2)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("23"))));
-        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(100));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(100)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(10));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(10)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Float(8.));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Float(8.)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(-10));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(-10)
+        );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Float(-8.));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Float(-8.)
+        );
 
         let n5 = Node::new_keyword(Keyword::Mult)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Float(-50.));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Float(-50.)
+        );
 
         let n5 = Node::new_keyword(Keyword::Mult)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(n5.eval(&mut state).unwrap(), Variable::Int(-40));
+        assert_eq!(
+            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Int(-40)
+        );
     }
 
     #[test]
     fn test_eval_complex() {
-        let mut state = Engine::default();
+        let mut state = HashMap::default();
+        let subtrees = HashMap::new();
 
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
 
@@ -855,19 +546,24 @@ mod tests {
         let n4 = Node::new_keyword(Keyword::Mult)
             .append(n3)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
-        assert_eq!(n4.eval(&mut state).unwrap(), Variable::Float(313.25));
+        assert_eq!(
+            n4.start_evaluation(&mut state, &subtrees).unwrap(),
+            Variable::Float(313.25)
+        );
     }
 
     #[test]
     fn test_parse_eval() {
-        let mut state = Engine::default();
+        let mut state = HashMap::default();
+        let subtrees = HashMap::new();
 
         let mut lexer = Lexer::new("VEC(1,BOOL(true),3,FLOAT(4.0))");
         let tokens = lexer.make_tokens();
         let mut parser = Parser::new(tokens);
-        let got = parser.parse();
+        let got = parser.parse().unwrap();
+        println!("{:?}", got);
         assert_eq!(
-            got.eval(&mut state).unwrap(),
+            got.start_evaluation(&mut state, &subtrees).unwrap(),
             Variable::Vector(vec![
                 Variable::String(String::from("1")),
                 Variable::Bool(true),
@@ -877,19 +573,26 @@ mod tests {
         )
     }
 
-    fn fire(def: Definition, state: &mut Engine) -> EvalResult<()> {
+    fn fire_for_test(
+        def: Definition,
+        state: &mut HashMap<String, Variable>,
+        subtrees: &HashMap<String, Vec<Node>>,
+    ) -> Result<()> {
         for step in def {
-            let tokens = Lexer::new(&step).make_tokens();
-            let root = Parser::new(tokens).parse();
-            root.eval(state)?;
+            let root = Parser::new(Lexer::new(&step).make_tokens())
+                .parse()
+                .unwrap();
+            root.start_evaluation(state, subtrees)?;
         }
         Ok(())
     }
     /// Runs single test scenario.
     fn test(def: Definition, var_name: String, value: Variable) {
-        let mut state = Engine::default();
-        fire(def, &mut state).unwrap();
-        assert_eq!(*state.get(var_name).unwrap(), value);
+        let mut state = HashMap::default();
+        let subtrees = HashMap::new();
+
+        fire_for_test(def, &mut state, &subtrees).unwrap();
+        assert_eq!(*state.get(&var_name).unwrap(), value);
     }
 
     #[test]
@@ -926,6 +629,8 @@ mod tests {
         }"#;
 
         let mut map: HashMap<String, Variable> = HashMap::new();
+        let subtrees = HashMap::new();
+
         map.insert(
             String::from("kid"),
             Variable::String(String::from("kidvalue")),
@@ -935,28 +640,25 @@ mod tests {
         map.insert(String::from("n"), Variable::String(String::from("nvalue")));
         map.insert(String::from("e"), Variable::String(String::from("evalue")));
 
-        let mut state = Engine::default();
+        let mut state = HashMap::default();
         let def = Definition::new(vec![
             format!("DEFINE(var, OBJECT('{}'))", map_str).to_string(),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
             String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
             String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
         ]);
-        fire(def, &mut state).unwrap();
+        fire_for_test(def, &mut state, &subtrees).unwrap();
+        assert_eq!(*state.get("var").unwrap(), Variable::Object(map));
         assert_eq!(
-            *state.get(String::from("var")).unwrap(),
-            Variable::Object(map)
-        );
-        assert_eq!(
-            *state.get(String::from("var2")).unwrap(),
+            *state.get("var2").unwrap(),
             Variable::String(String::from("RSA"))
         );
         assert_eq!(
-            *state.get(String::from("var3")).unwrap(),
+            *state.get("var3").unwrap(),
             Variable::String(String::from("sig"))
         );
         assert_eq!(
-            *state.get(String::from("var4")).unwrap(),
+            *state.get("var4").unwrap(),
             Variable::String(String::from("nvalue"))
         );
     }
@@ -972,6 +674,8 @@ mod tests {
                 "e":"e-value"
             }
         }"#;
+
+        let subtrees = HashMap::new();
         let mut embedded: HashMap<String, Variable> = HashMap::new();
         embedded.insert(String::from("use"), Variable::String(String::from("sig")));
         embedded.insert(String::from("n"), Variable::String(String::from("n-value")));
@@ -983,17 +687,14 @@ mod tests {
         );
         let obj = Variable::Object(embedded);
         map.insert(String::from("kty"), obj.clone());
-        let mut state = Engine::default();
+        let mut state = HashMap::default();
         let def = Definition::new(vec![
             format!("DEFINE(var, object('{}'))", map_str).to_string(),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
         ]);
-        fire(def, &mut state).unwrap();
-        assert_eq!(
-            *state.get(String::from("var")).unwrap(),
-            Variable::Object(map)
-        );
-        assert_eq!(*state.get(String::from("var2")).unwrap(), obj);
+        fire_for_test(def, &mut state, &subtrees).unwrap();
+        assert_eq!(*state.get("var").unwrap(), Variable::Object(map));
+        assert_eq!(*state.get("var2").unwrap(), obj);
     }
 
     #[test]
@@ -1010,15 +711,17 @@ mod tests {
         // Parse the string of data into serde_json::Value.
         let v: Value = serde_json::from_str(data).unwrap();
 
-        let mut state = Engine::default();
+        let mut state = HashMap::default();
+        let subtrees = HashMap::new();
+
         let def = Definition::new(vec![
             format!("DEFINE(var, JSON('{}'))", data).to_string(),
             "DEFINE(var2, EXTRACT(GET(var), name))".to_string(),
         ]);
-        fire(def, &mut state).unwrap();
-        assert_eq!(*state.get("var".to_string()).unwrap(), Variable::Json(v));
+        fire_for_test(def, &mut state, &subtrees).unwrap();
+        assert_eq!(*state.get("var").unwrap(), Variable::Json(v));
         assert_eq!(
-            *state.get("var2".to_string()).unwrap(),
+            *state.get("var2").unwrap(),
             Variable::String(String::from("John Doe"))
         );
     }
@@ -1078,6 +781,15 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_array_define_extract_deep() {
+        let def = Definition::new(vec![
+            String::from("DEFINE(var, VEC(1,VEC(1,VEC(1, VEC(1, 2)))))"),
+            String::from("DEFINE(var2, EXTRACT(GET(var), 1, BOOL(true)))"),
+        ]);
+        test(def, "var2".to_string(), Variable::String(String::from("2")));
+    }
+
+    #[test]
     fn test_parse_get_define() {
         let data = r#"{
             "userId": 1,
@@ -1122,10 +834,445 @@ mod tests {
             format!("DEFINE(var, VEC(1, INT(2), FLOAT(3.2), JSON('{}')))", data).as_str(),
         )
         .make_tokens();
-        let root = Parser::new(tokens).parse();
+        let root = Parser::new(tokens).parse().unwrap();
 
         let serialized = serde_json::to_string(&root).unwrap();
         let deserialized = serde_json::from_str::<Node>(&serialized).unwrap();
         assert_eq!(root, deserialized);
+    }
+
+    #[test]
+    fn test_run_subtree() {
+        let definition = Definition {
+            steps: vec![
+                String::from("DEFINE(IN, INT(20))"),
+                String::from("RunSubtree(testsubtree)"),
+            ],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
+                    subtrees: None,
+                },
+            }]),
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(None, &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(30));
+
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![
+                SubTree {
+                    name: String::from("testsubtree"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("RunSubtree(testsubtree2)")],
+                        subtrees: None,
+                    },
+                },
+                SubTree {
+                    name: String::from("testsubtree2"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, INT(400))")],
+                        subtrees: None,
+                    },
+                },
+            ]),
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(None, &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(400));
+    }
+
+    // #[test]
+    // fn test_run_subtree_for_each() {
+    //     // VECTOR TEST.
+    //     let definition = Definition {
+    //         steps: vec![String::from(
+    //             "DEFINE(OUT, RunSubtreeForEach(testsubtree, VEC(GET(IN), INT(1), INT(2), INT(3))))",
+    //         )],
+    //         subtrees: Some(vec![SubTree {
+    //             name: String::from("testsubtree"),
+    //             input_type: None,
+    //             definition: Definition {
+    //                 steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
+    //                 subtrees: None,
+    //             },
+    //         }]),
+    //     };
+
+    //     let eval_forest = EvalForest::from_definition(&definition);
+    //     let mut engine = Engine::new(Variable::Int(10), eval_forest);
+    //     engine.fire().expect("fire failed");
+    //     assert_eq!(
+    //         engine.get("OUT").expect("there's not OUT variable"),
+    //         &Variable::Vector(vec![
+    //             Variable::Int(20),
+    //             Variable::Int(11),
+    //             Variable::Int(12),
+    //             Variable::Int(13)
+    //         ])
+    //     );
+
+    //     // OBJECT TEST.
+    //     let map_str = r#"
+    //     {
+    //         "kid": 1,
+    //         "kty": 2,
+    //         "use": 3,
+    //         "n": 4,
+    //         "e": 5
+    //     }"#;
+    //     let t = format!("OBJECT('{}')", map_str);
+
+    //     let definition = Definition {
+    //         steps: vec![
+    //             format!("DEFINE(var, RunSubtreeForEach(testsubtree, {}))", t,),
+    //             String::from("DEFINE(OUT, RunSubtreeForEach(testsubtree2, GET(var)))"),
+    //         ],
+    //         subtrees: Some(vec![
+    //             SubTree {
+    //                 name: String::from("testsubtree"),
+    //                 input_type: None,
+    //                 definition: Definition {
+    //                     steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
+    //                     subtrees: None,
+    //                 },
+    //             },
+    //             SubTree {
+    //                 name: String::from("testsubtree2"),
+    //                 input_type: None,
+    //                 definition: Definition {
+    //                     steps: vec![String::from("DEFINE(OUT, MULT(GET(IN), INT(10)))")],
+    //                     subtrees: None,
+    //                 },
+    //             },
+    //         ]),
+    //     };
+
+    //     let eval_forest = EvalForest::from_definition(&definition);
+    //     let mut engine = Engine::new(Variable::Int(10), eval_forest);
+    //     engine.fire().expect("fire failed");
+    //     assert_eq!(
+    //         engine.get("OUT").expect("there's not OUT variable"),
+    //         &Variable::Object(HashMap::from([
+    //             (String::from("kid"), Variable::Int(110)),
+    //             (String::from("kty"), Variable::Int(120)),
+    //             (String::from("use"), Variable::Int(130)),
+    //             (String::from("n"), Variable::Int(140)),
+    //             (String::from("e"), Variable::Int(150)),
+    //         ]))
+    //     )
+    // }
+
+    // #[test]
+    // fn test_run_subtree_for_each_invalid_type() {
+    //     let definition = Definition {
+    //         steps: vec![String::from(
+    //             "DEFINE(OUT, RunSubtreeForEach(testsubtree, VEC(GET(IN), INT(1), INT(2), INT(3))))",
+    //         )],
+    //         subtrees: Some(vec![SubTree {
+    //             name: String::from("testsubtree"),
+    //             input_type: None,
+    //             definition: Definition {
+    //                 steps: vec![String::from("DEFINE(OUT, FLOAT(1.0))")],
+    //                 subtrees: None,
+    //             },
+    //         }]),
+    //     };
+
+    //     let eval_forest = EvalForest::from_definition(&definition);
+    //     let mut engine = Engine::new(Variable::Int(10), eval_forest);
+    //     let result = engine.fire();
+    //     assert!(result.is_err());
+    //     assert_eq!(
+    //         result.err().unwrap(),
+    //         Error::new_eval_internal(
+    //             String::from("run_subtree_for_each"),
+    //             String::from("invalid type of OUT variable: Float(1.0)"),
+    //         )
+    //     );
+    // }
+
+    #[test]
+    fn test_if_function() {
+        env_logger::try_init();
+
+        let def = Definition::new(vec![String::from("DEFINE(var, IF(BOOL(true), INT(1)))")]);
+        test(def, String::from("var"), Variable::Int(1));
+
+        let def = Definition::new(vec![String::from("DEFINE(var, IF(BOOL(false), INT(1)))")]);
+        test(def, String::from("var"), Variable::None);
+
+        let def = Definition::new(vec![
+            String::from("DEFINE(IN, VEC(1,2,3,4))"),
+            String::from("DEFINE(var, IF(BOOL(true), GET(IN)))"),
+        ]);
+        test(
+            def,
+            String::from("var"),
+            Variable::Vector(vec![
+                Variable::String(String::from("1")),
+                Variable::String(String::from("2")),
+                Variable::String(String::from("3")),
+                Variable::String(String::from("4")),
+            ]),
+        );
+    }
+
+    #[test]
+    fn test_if_function_with_run_subtree() {
+        let definition = Definition {
+            steps: vec![String::from("IF(INT(1), RunSubtree(testsubtree))")],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(125)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(135));
+
+        let definition = Definition {
+            steps: vec![String::from("IF(INT(2), RunSubtree(testsubtree))")],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(125)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(125));
+
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![
+                SubTree {
+                    name: String::from("testsubtree"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("IF(GET(IN), RunSubtree(testsubtree2))")],
+                        subtrees: None,
+                    },
+                },
+                SubTree {
+                    name: String::from("testsubtree2"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, INT(155))")],
+                        subtrees: None,
+                    },
+                },
+            ]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(1)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(155));
+
+        let out = evaluate(Some(Variable::Int(2)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(2));
+    }
+
+    #[test]
+    fn test_if_function_without_define() {
+        let definition = Definition {
+            steps: vec![String::from("IF(INT(1), DEFINE(var, INT(100)))")],
+            subtrees: None,
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert_eq!(engine.get("var").unwrap(), &Variable::Int(100));
+
+        let definition = Definition {
+            steps: vec![String::from("IF(INT(123), DEFINE(var, INT(100)))")],
+            subtrees: None,
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert!(engine.get("var").is_none());
+
+        let definition = Definition {
+            steps: vec![String::from("IF(BOOL(true), DEFINE(var, INT(100)))")],
+            subtrees: None,
+        };
+        let eval_forest = EvalForest::from_definition(&definition);
+        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+        engine.fire().expect("fire failed");
+        assert_eq!(engine.get("var").unwrap(), &Variable::Int(100));
+    }
+
+    #[test]
+    fn test_break_parse() {
+        let root = Parser::new(Lexer::new("BREAK").make_tokens())
+            .parse()
+            .unwrap();
+        assert_eq!(root.value, NodeEnum::Keyword(Keyword::Break));
+        assert_eq!(root.nodes.len(), 0);
+    }
+
+    #[test]
+    fn test_break_keyword() {
+        env_logger::try_init();
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![
+                SubTree {
+                    name: String::from("testsubtree"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![
+                            String::from("BREAK"),
+                            String::from("RunSubtree(testsubtree2)"), // should not be called.
+                        ],
+                        subtrees: None,
+                    },
+                },
+                SubTree {
+                    name: String::from("testsubtree2"),
+                    input_type: None,
+                    definition: Definition {
+                        steps: vec![String::from("DEFINE(OUT, INT(155))")], // should not be called.
+                        subtrees: None,
+                    },
+                },
+            ]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(2)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(2));
+
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![
+                        String::from("DEFINE(IN, SUB(GET(IN), INT(1)))"),
+                        String::from("IF(GET(IN), DEFINE(OUT, GET(IN)))"),
+                        String::from("IF(GET(IN), BREAK)"),
+                        String::from("RunSubtree(testsubtree)"),
+                    ],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(5)), &eval_forest).expect("could not evaluate");
+        assert_eq!(out, Variable::Int(1));
+
+        let definition = Definition {
+            steps: vec![String::from("RunSubtree(testsubtree)")],
+            subtrees: Some(vec![SubTree {
+                name: String::from("testsubtree"),
+                input_type: None,
+                definition: Definition {
+                    steps: vec![
+                        String::from("DEFINE(IN, SUB(GET(IN), INT(1)))"),
+                        String::from("RunSubtree(testsubtree)"),
+                    ],
+                    subtrees: None,
+                },
+            }]),
+        };
+
+        let eval_forest = EvalForest::from_definition(&definition);
+        let out = evaluate(Some(Variable::Int(5)), &eval_forest)
+            .expect_err("should be stack overflow error");
+        assert_eq!(
+            out,
+            Error::new_eval_internal(String::from("run_subtree"), String::from("stack overflow"))
+        );
+    }
+
+    #[test]
+    fn eq_test() {
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, Eq(Eq(INT(1), INT(1)), Eq(FLOAT(2.5), FLOAT(2.5))))",
+        )]);
+        test(def, String::from("OUT"), Variable::Bool(true));
+    }
+
+    #[test]
+    fn map_test() {
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, MAP(VEC(INT(1), INT(2), INT(3)), ADD(X, INT(2))))",
+        )]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Int(3), Variable::Int(4), Variable::Int(5)]),
+        );
+
+        let def = Definition::new(vec![
+            String::from("DEFINE(IN, VEC(INT(11), INT(12), INT(13)))"),
+            String::from("DEFINE(OUT, MAP(GET(IN), SUB(X, INT(2))))"),
+        ]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Int(9), Variable::Int(10), Variable::Int(11)]),
+        );
+
+        let def = Definition::new(vec![
+            String::from("DEFINE(IN, VEC(VEC(INT(10), INT(11)), VEC(INT(20), INT(40))))"),
+            String::from("DEFINE(OUT, MAP(GET(IN), MAP(X, SUB(X, INT(2)))))"),
+        ]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![
+                Variable::Vector(vec![Variable::Int(8), Variable::Int(9)]),
+                Variable::Vector(vec![Variable::Int(18), Variable::Int(38)]),
+            ]),
+        );
+    }
+
+    #[test]
+    fn filter_test() {
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, FILTER(VEC(INT(1), INT(2), INT(3)), EQ(X, INT(2))))",
+        )]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Int(2)]),
+        );
+
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, FILTER(VEC(BOOL(true), BOOL(false), BOOL(true)), EQ(X, BOOL(true))))",
+        )]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Bool(true), Variable::Bool(true)]),
+        );
+
+        let def = Definition::new(vec![String::from(
+            "DEFINE(OUT, FILTER(VEC(INT(1), INT(2), INT(3)), EQ(ADD(X, INT(2)), INT(4))))",
+        )]);
+        test(
+            def,
+            String::from("OUT"),
+            Variable::Vector(vec![Variable::Int(2)]),
+        );
     }
 }

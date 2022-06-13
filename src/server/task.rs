@@ -75,7 +75,7 @@ pub async fn create(
 ) -> TaskCreateResponse {
     info!("definition from request: {:?}", request.definition);
 
-    let tt = TrackingTask::from_task_create_request(request.clone());
+    let tt = TrackingTask::from_task_create_request(request.0);
 
     match tt {
         Ok(tt) => {
@@ -125,7 +125,7 @@ mod tests {
                 "direction": "horizontal",
                 "definition": {
                     "steps": [
-                        "DEFINE(var, VEC(1,2,3,4, GET(IN))",
+                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
                         "DEFINE(OUT, GET(var))"
                     ]
                 },
@@ -142,7 +142,7 @@ mod tests {
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
                     definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4, GET(IN))"),
+                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
                         String::from("DEFINE(OUT, GET(var))"),
                     ]),
                     input: Some(TaskInput::None),
@@ -161,7 +161,7 @@ mod tests {
                 "direction": "horizontal",
                 "definition": {
                     "steps": [
-                        "DEFINE(var, VEC(1,2,3,4, GET(IN))",
+                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
                         "DEFINE(OUT, GET(var))"
                     ]
                 },
@@ -178,7 +178,7 @@ mod tests {
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
                     definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4, GET(IN))"),
+                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
                         String::from("DEFINE(OUT, GET(var))"),
                     ]),
                     input: Some(TaskInput::None),
@@ -197,7 +197,7 @@ mod tests {
                 "direction": "horizontal",
                 "definition": {
                     "steps": [
-                        "DEFINE(var, VEC(1,2,3,4, GET(IN))",
+                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
                         "DEFINE(OUT, GET(var))"
                     ]
                 },
@@ -214,7 +214,7 @@ mod tests {
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
                     definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4, GET(IN))"),
+                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
                         String::from("DEFINE(OUT, GET(var))"),
                     ]),
                     input: Some(TaskInput::PSQL {
@@ -240,7 +240,7 @@ mod tests {
                 "direction": "horizontal",
                 "definition": {
                     "steps": [
-                        "DEFINE(var, VEC(1,2,3,4, GET(IN))",
+                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
                         "DEFINE(OUT, GET(var))"
                     ]
                 },
@@ -256,7 +256,7 @@ mod tests {
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
                     definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4, GET(IN))"),
+                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
                         String::from("DEFINE(OUT, GET(var))"),
                     ]),
                     input: None,

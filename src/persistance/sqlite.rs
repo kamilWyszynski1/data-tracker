@@ -1,11 +1,13 @@
 use super::interface::PResult;
 use super::interface::Persistance;
+use crate::core::handler::Report;
 use crate::core::task::TrackingTask;
 use crate::core::types::State;
 use crate::diesel::OptionalExtension;
 use crate::diesel::RunQueryDsl;
 use crate::error::types::Error;
 use crate::models::location::Location;
+use crate::models::report::ReportModel;
 use crate::models::task::TaskModel;
 use crate::schema::*;
 use diesel::{insert_into, ExpressionMethods, QueryDsl};
@@ -150,6 +152,24 @@ impl Persistance for SqliteClient {
         t.into_iter()
             .map(|tm| TrackingTask::from_task_model(&tm))
             .collect::<PResult<Vec<TrackingTask>>>()
+    }
+
+    fn save_report(&mut self, report: Report) -> PResult<i32> {
+        use crate::schema::reports::dsl::*;
+
+        let model = ReportModel::from_report(&report);
+        insert_into(reports)
+            .values(&model)
+            .execute(&self.conn)
+            .and_then(|_| -> Result<i32, diesel::result::Error> {
+                reports.select(id).order(id.desc()).first(&self.conn)
+            })
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("empty Option from query update_task_status"),
+                    err.to_string(),
+                )
+            })
     }
 }
 

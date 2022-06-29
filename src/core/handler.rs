@@ -12,9 +12,49 @@ use crate::lang::variable::Variable;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
+use futures::Future;
 use log::info;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc::Receiver;
+use uuid::Uuid;
+
+#[derive(Debug)]
+pub struct Report {
+    pub task_id: Uuid,
+    start: Instant, // duration of phase will be calculated from this value.
+    pub phases: HashMap<String, u64>,
+    pub success: bool,
+}
+
+impl Report {
+    fn new(task_id: Uuid) -> Self {
+        Self {
+            task_id,
+            start: Instant::now(),
+            success: false,
+            phases: HashMap::default(),
+        }
+    }
+
+    fn mark_successful(&mut self) {
+        self.success = false
+    }
+
+    fn add_phase(&mut self, phase: String) {
+        self.phases.insert(phase, self.start.elapsed().as_secs());
+    }
+
+    async fn run<Fut>(task_id: Uuid, func: impl for<'a> FnOnce(&'a mut Report) -> Fut) -> Self
+    where
+        Fut: Future<Output = ()>,
+    {
+        let mut report = Report::new(task_id);
+        func(&mut report).await;
+        report
+    }
+}
 
 /// Handles single TrackingTask.
 pub struct TaskHandler<A: API> {
@@ -148,55 +188,61 @@ where
 
     /// Performs single handling of task.
     async fn handle(&self, input_data: &InputData) {
-        info!("Handling task {}", self.task.info());
+        Report::run(self.task.id, async move |report| {
+            info!("Handling task {}", self.task.info());
 
-        let evaluated = evaluate_data(input_data, &self.task.eval_forest);
-        match evaluated {
-            Ok(data) => {
-                info!("evaluated from engine: {:?}", &data);
+            let evaluated = evaluate_data(input_data, &self.task.eval_forest);
+            report.add_phase(String::from("EVALUATE"));
 
-                let data = create_write_vec(self.task.direction, data);
+            match evaluated {
+                Ok(data) => {
+                    info!("evaluated from engine: {:?}", &data);
 
-                let last_place = self.db.get(&self.task.id).await.unwrap_or(0);
-                let data_len = data.len() as u32;
-                debug!("last_place: {}, data_len: {}", last_place, data_len);
+                    let data = create_write_vec(self.task.direction, data);
 
-                let result = self
-                    .api
-                    .write(
-                        data,
-                        &self.task.spreadsheet_id,
-                        &create_range(
-                            last_place, // TODO: calculations are not working properly.
-                            &self.task.starting_position,
-                            &self.task.sheet,
-                            self.task.direction,
-                            data_len,
-                        ),
-                    )
-                    .await;
+                    let last_place = self.db.get(&self.task.id).await.unwrap_or(0);
+                    let data_len = data.len() as u32;
+                    debug!("last_place: {}, data_len: {}", last_place, data_len);
 
-                debug!("saving to db");
-                if let Err(err) = self.db.save(self.task.id, data_len + last_place).await {
-                    debug!("save failed");
-                    self.task.run_callbacks(Err(err));
-                } else {
-                    debug!("save successful");
-                    self.task.run_callbacks(result);
+                    let result = self
+                        .api
+                        .write(
+                            data,
+                            &self.task.spreadsheet_id,
+                            &create_range(
+                                last_place, // TODO: calculations are not working properly.
+                                &self.task.starting_position,
+                                &self.task.sheet,
+                                self.task.direction,
+                                data_len,
+                            ),
+                        )
+                        .await;
+
+                    debug!("saving to db");
+                    if let Err(err) = self.db.save(self.task.id, data_len + last_place).await {
+                        debug!("save failed");
+                        self.task.run_callbacks(Err(err));
+                    } else {
+                        debug!("save successful");
+                        self.task.run_callbacks(result);
+                    }
+                }
+                Err(err) => {
+                    error!("{:?}", err);
+                    self.task.run_callbacks(Err(Error::new_internal(
+                        String::from("get"),
+                        String::from("failed to evaluate"),
+                        err.to_string(),
+                    )));
                 }
             }
-            Err(err) => {
-                error!("{:?}", err);
-                self.task.run_callbacks(Err(Error::new_internal(
-                    String::from("get"),
-                    String::from("failed to evaluate"),
-                    err.to_string(),
-                )));
+            if self.task.invocations.is_some() {
+                self.task.invocations.map(|i| i - 1);
             }
-        }
-        if self.task.invocations.is_some() {
-            self.task.invocations.map(|i| i - 1);
-        }
+            // report.mark_successful()
+        })
+        .await;
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::{
-    core::{task::TrackingTask, types::State},
+    core::{handler::Report, task::TrackingTask, types::State},
     error::types::Error,
+    models::report::ReportModel,
 };
 
 use super::interface::{PResult, Persistance};
@@ -11,14 +12,13 @@ use uuid::Uuid;
 pub struct InMemoryPersistance {
     data: HashMap<Uuid, u32>,
     pub tasks: HashMap<Uuid, TrackingTask>,
+    las_report: i32,
+    pub reports: HashMap<i32, ReportModel>,
 }
 
 impl InMemoryPersistance {
     pub fn new() -> Self {
-        InMemoryPersistance {
-            data: HashMap::new(),
-            tasks: HashMap::new(),
-        }
+        InMemoryPersistance::default()
     }
 }
 
@@ -86,5 +86,12 @@ impl Persistance for InMemoryPersistance {
             .filter(|(_, tt)| statuses.contains(&tt.status))
             .map(|(_, tt)| tt.clone())
             .collect())
+    }
+
+    fn save_report(&mut self, report: Report) -> PResult<i32> {
+        self.las_report += 1;
+        self.reports
+            .insert(self.las_report, ReportModel::from_report(&report));
+        Ok(self.las_report)
     }
 }

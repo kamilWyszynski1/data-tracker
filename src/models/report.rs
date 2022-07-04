@@ -16,7 +16,7 @@ impl ReportModel {
         Self {
             task_id: report.task_id.to_string(),
             phases: json!(report.phases).to_string(),
-            failed: report.failed,
+            failed: !report.success,
         }
     }
 }

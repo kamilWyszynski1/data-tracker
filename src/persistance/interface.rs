@@ -19,7 +19,7 @@ pub trait Persistance {
     fn update_task_status(&mut self, uuid: Uuid, status: State) -> PResult<()>;
     fn delete_task(&mut self, uuid: Uuid) -> PResult<()>;
     fn get_tasks_by_status(&mut self, statuses: &[State]) -> PResult<Vec<TrackingTask>>;
-    fn save_report(&mut self, report: Report) -> PResult<i32>;
+    fn save_report(&mut self, report: &Report) -> PResult<i32>;
 }
 
 #[derive(Clone)]
@@ -56,7 +56,7 @@ impl Db {
     pub async fn get_tasks_by_status(&mut self, statuses: &[State]) -> PResult<Vec<TrackingTask>> {
         self.shared.lock().await.get_tasks_by_status(statuses)
     }
-    pub async fn save_report(&mut self, report: Report) -> PResult<i32> {
+    pub async fn save_report(&mut self, report: &Report) -> PResult<i32> {
         self.shared.lock().await.save_report(report)
     }
 }

@@ -1,12 +1,15 @@
 extern crate datatracker_rust;
+use datatracker_rust::connector::string::getter_from_string;
 use datatracker_rust::core::channels::ChannelsManager;
 use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::TrackingTask;
 use datatracker_rust::core::tracker::Tracker;
+use datatracker_rust::core::types::Direction;
 use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::persistance::sqlite::{establish_connection, SqliteClient};
 use datatracker_rust::server::build::rocket;
 use datatracker_rust::server::proto::StatsService;
+use datatracker_rust::server::task::TaskKindRequest;
 use datatracker_rust::stats::stats_server::StatsServer;
 use datatracker_rust::wrap::StdoutAPI;
 use diesel_migrations::embed_migrations;
@@ -45,6 +48,18 @@ async fn main() {
         cmd_receive,
     );
     info!("initialized");
+
+    tt_send
+        .send(TrackingTask::new(
+            String::from("_"),
+            String::from("_"),
+            String::from("A1"),
+            Direction::Horizontal,
+            Some(getter_from_string(String::from("test"))),
+            TaskKindRequest::Ticker { interval_secs: 1 },
+        ))
+        .await
+        .unwrap();
 
     tokio::task::spawn(async move {
         tokio::select! {

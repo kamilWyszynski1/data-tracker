@@ -154,10 +154,10 @@ impl Persistance for SqliteClient {
             .collect::<PResult<Vec<TrackingTask>>>()
     }
 
-    fn save_report(&mut self, report: Report) -> PResult<i32> {
+    fn save_report(&mut self, report: &Report) -> PResult<i32> {
         use crate::schema::reports::dsl::*;
 
-        let model = ReportModel::from_report(&report);
+        let model = ReportModel::from_report(report);
         insert_into(reports)
             .values(&model)
             .execute(&self.conn)

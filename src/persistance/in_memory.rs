@@ -88,10 +88,10 @@ impl Persistance for InMemoryPersistance {
             .collect())
     }
 
-    fn save_report(&mut self, report: Report) -> PResult<i32> {
+    fn save_report(&mut self, report: &Report) -> PResult<i32> {
         self.las_report += 1;
         self.reports
-            .insert(self.las_report, ReportModel::from_report(&report));
+            .insert(self.las_report, ReportModel::from_report(report));
         Ok(self.las_report)
     }
 }

@@ -46,13 +46,17 @@ impl Report {
         self.phases.insert(phase, self.start.elapsed().as_secs());
     }
 
-    async fn run<Fut>(task_id: Uuid, func: impl for<'a> FnOnce(&'a mut Report) -> Fut) -> Self
+    async fn save(&self, mut db: Db) {
+        db.save_report(self).await.unwrap();
+    }
+
+    async fn run<Fut>(task_id: Uuid, db: Db, func: impl FnOnce(Self) -> Fut)
     where
-        Fut: Future<Output = ()>,
+        Fut: Future<Output = Self>,
     {
-        let mut report = Report::new(task_id);
-        func(&mut report).await;
-        report
+        let mut report = func(Report::new(task_id)).await;
+        report.add_phase(String::from("EXECUTION"));
+        report.save(db).await
     }
 }
 
@@ -106,6 +110,7 @@ where
     }
 
     pub async fn start(&mut self) {
+        debug!("start");
         let background_job = self
             .task
             .init_channels(&self.channels_manager, self.shutdown.subscribe())
@@ -188,7 +193,7 @@ where
 
     /// Performs single handling of task.
     async fn handle(&self, input_data: &InputData) {
-        Report::run(self.task.id, async move |report| {
+        Report::run(self.task.id, self.db.clone(), async move |mut report| {
             info!("Handling task {}", self.task.info());
 
             let evaluated = evaluate_data(input_data, &self.task.eval_forest);
@@ -240,7 +245,9 @@ where
             if self.task.invocations.is_some() {
                 self.task.invocations.map(|i| i - 1);
             }
-            // report.mark_successful()
+
+            report.mark_successful(); // report is failed by default.
+            report
         })
         .await;
     }
@@ -356,7 +363,9 @@ mod tests {
         let (_, receiver) = broadcast::channel(1);
         receiver
     }
+
     async fn test_get_data_fn() -> Result<InputData> {
+        tokio::time::sleep(Duration::from_secs(1)).await;
         Ok(InputData::String(String::from("test")))
     }
 
@@ -541,6 +550,43 @@ mod tests {
         drop(shutdown_sender);
         drop(cmd_sender);
     }
+
+    // #[tokio::test]
+    // async fn test_handler_interval() {
+    //     env_logger::try_init();
+
+    //     let tt = TrackingTask::new(
+    //         "spreadsheet_id".to_string(),
+    //         "".to_string(),
+    //         "A1".to_string(),
+    //         Direction::Vertical,
+    //         data_fn(),
+    //         TaskKindRequest::Ticker {
+    //             interval_secs: 10000,
+    //         },
+    //     );
+
+    //     let db = Db::new(Box::new(InMemoryPersistance::new()));
+    //     let channels_manager = ChannelsManager::default();
+    //     let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
+    //     let shutdown = Shutdown::new(shutdown_sender.clone(), shutdown_receiver);
+    //     let (api, _) = TestAPI::new();
+    //     let api = Arc::new(api);
+    //     let (sender, cmd_receiver) = mpsc::channel(1);
+
+    //     let mut handler = TaskHandler::new(
+    //         tt,
+    //         db.clone(),
+    //         shutdown,
+    //         api,
+    //         cmd_receiver,
+    //         channels_manager.clone(),
+    //     );
+    //     // tokio::task::spawn(async move { handler.start().await });
+    //     tokio::time::sleep(Duration::from_secs(10)).await;
+    //     drop(shutdown_sender);
+    //     drop(sender);
+    // }
 
     #[tokio::test]
     async fn test_handler_command() {

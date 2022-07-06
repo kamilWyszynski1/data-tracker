@@ -173,7 +173,7 @@ impl Node {
                     Keyword::Map => {
                         return map_function(&self.nodes, variables, subtrees, metadata);
                     }
-                    Keyword::Filter => return filter(&self.nodes, variables, subtrees, metadata),
+                    Keyword::Filter => return filter(&self.nodes, variables, subtrees),
                     _ => {}
                 }
 
@@ -573,7 +573,7 @@ fn map_function(
                 })
                 .collect(),
         )),
-        Variable::Object(obj) => todo!(),
+        Variable::Object(_) => todo!(),
         _ => Err(Error::new_eval_internal(
             String::from("map_function"),
             format!(
@@ -588,7 +588,6 @@ fn filter(
     nodes: &[Node],
     variables: &mut HashMap<String, Variable>,
     subtrees: &HashMap<String, Vec<Node>>,
-    metadata: &mut EvalMetadata,
 ) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
 

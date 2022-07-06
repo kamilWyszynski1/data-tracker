@@ -330,6 +330,7 @@ impl TrackingTask {
     //TODO: refactor - input and data_fn should be highly connected.
     /// sets input field.
     pub fn with_input(mut self, input: TaskInput) -> TrackingTask {
+        self.data_fn = getter_from_task_input(&input).map(Arc::new);
         self.input = Some(input);
         self
     }

@@ -11,6 +11,7 @@ table! {
         task_id -> Text,
         phases -> Text,
         failed -> Bool,
+        start -> Timestamp,
     }
 }
 

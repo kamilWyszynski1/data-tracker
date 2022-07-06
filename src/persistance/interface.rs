@@ -1,6 +1,7 @@
 use crate::{
     core::{handler::Report, task::TrackingTask, types::State},
     error::types::Error,
+    models::report::ReportModel,
 };
 use mockall::*;
 use std::sync::Arc;
@@ -20,6 +21,7 @@ pub trait Persistance {
     fn delete_task(&mut self, uuid: Uuid) -> PResult<()>;
     fn get_tasks_by_status(&mut self, statuses: &[State]) -> PResult<Vec<TrackingTask>>;
     fn save_report(&mut self, report: &Report) -> PResult<i32>;
+    fn read_reports(&mut self, uuid: Uuid) -> PResult<Option<Vec<ReportModel>>>;
 }
 
 #[derive(Clone)]
@@ -58,5 +60,8 @@ impl Db {
     }
     pub async fn save_report(&mut self, report: &Report) -> PResult<i32> {
         self.shared.lock().await.save_report(report)
+    }
+    pub async fn read_reports(&self, uuid: Uuid) -> PResult<Option<Vec<ReportModel>>> {
+        self.shared.lock().await.read_reports(uuid)
     }
 }

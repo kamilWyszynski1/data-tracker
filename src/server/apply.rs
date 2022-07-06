@@ -46,6 +46,8 @@ pub async fn apply(
 mod tests {
     use crate::core::manager::{Command, TaskCommand};
     use crate::core::task::TrackingTask;
+    use crate::persistance::in_memory::InMemoryPersistance;
+    use crate::persistance::interface::Db;
     use crate::server::build::rocket;
     use rocket::http::{ContentType, Status};
     use rocket::local::asynchronous::Client;
@@ -58,8 +60,10 @@ mod tests {
         println!("{:?}", Uuid::new_v4().to_simple());
         let (cmd_send, mut cmd_receive) = channel::<TaskCommand>(1);
         let (tt_send, _) = channel::<TrackingTask>(1);
+        let db = InMemoryPersistance::new();
+        let db = Db::new(Box::new(db));
 
-        let r = rocket(cmd_send, tt_send);
+        let r = rocket(cmd_send, tt_send, db);
         let client = Client::tracked(r).await.expect("valid rocket instance");
         let req = client
             .post("/apply")
@@ -82,8 +86,10 @@ mod tests {
     async fn invalid_uuid_apply() {
         let (cmd_send, mut cmd_receive) = channel::<TaskCommand>(1);
         let (tt_send, _) = channel::<TrackingTask>(1);
+        let db = InMemoryPersistance::new();
+        let db = Db::new(Box::new(db));
 
-        let r = rocket(cmd_send, tt_send);
+        let r = rocket(cmd_send, tt_send, db);
         let client = Client::tracked(r).await.expect("valid rocket instance");
         let req = client
             .post("/apply")
@@ -98,8 +104,10 @@ mod tests {
     async fn invalid_command_apply() {
         let (cmd_send, mut cmd_receive) = channel::<TaskCommand>(1);
         let (tt_send, _) = channel::<TrackingTask>(1);
+        let db = InMemoryPersistance::new();
+        let db = Db::new(Box::new(db));
 
-        let r = rocket(cmd_send, tt_send);
+        let r = rocket(cmd_send, tt_send, db);
         let client = Client::tracked(r).await.expect("valid rocket instance");
         let req = client
             .post("/apply")

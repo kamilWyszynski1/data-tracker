@@ -19,7 +19,7 @@ uuid = { version = "0.8", features = ["serde", "v4"] }
 async-trait = "0.1.52"
 ntest = "0.7.3"
 rand = "0.8.4"
-diesel = { version = "1.4.4", features = ["sqlite", "numeric"] }
+diesel = { version = "1.4.4", features = ["sqlite", "numeric", "chrono"] }
 diesel_migrations = "1.4.0"
 diesel-derive-enum = { version = "1.1.2", features = ["sqlite"]}
 derivative = "2.2.0"
@@ -35,8 +35,7 @@ tui = "0.17"
 crossterm = "0.22"
 postgres = "0.19.2" # data function.
 tokio-postgres = "0.7.6" # changes monitor.
-syn = "1.0"
-quote = "1.0"
+chrono = "0.4.19"
 
 [build-dependencies]
 tonic-build = "0.7.0"

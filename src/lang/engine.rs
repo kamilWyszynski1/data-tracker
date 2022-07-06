@@ -1,8 +1,4 @@
-use super::{
-    eval::EvalForest,
-    node::{Node, Stack},
-    variable::Variable,
-};
+use super::{eval::EvalForest, node::Node, variable::Variable};
 use crate::error::types::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

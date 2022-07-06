@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn test_if_function() {
-        env_logger::try_init();
+        env_logger::try_init().ok();
 
         let def = Definition::new(vec![String::from("DEFINE(var, IF(BOOL(true), INT(1)))")]);
         test(def, String::from("var"), Variable::Int(1));
@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn test_break_keyword() {
-        env_logger::try_init();
+        env_logger::try_init().ok();
         let definition = Definition {
             steps: vec![String::from("RunSubtree(testsubtree)")],
             subtrees: Some(vec![

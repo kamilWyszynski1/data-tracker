@@ -3,12 +3,13 @@ use crate::schema::reports;
 use diesel::{Insertable, Queryable};
 use serde_json::json;
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Insertable, Clone)]
 #[table_name = "reports"]
 pub struct ReportModel {
     pub task_id: String,
     pub phases: String,
     pub failed: bool,
+    pub start: chrono::NaiveDateTime,
 }
 
 impl ReportModel {
@@ -17,6 +18,7 @@ impl ReportModel {
             task_id: report.task_id.to_string(),
             phases: json!(report.phases).to_string(),
             failed: !report.success,
+            start: report.start.naive_utc(),
         }
     }
 }

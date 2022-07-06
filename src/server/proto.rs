@@ -6,6 +6,7 @@ use crate::stats::{GetStatsRequest, GetStatsResponse};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
+
 pub struct StatsService {
     db: Db,
 }

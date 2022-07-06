@@ -30,7 +30,7 @@ impl Variable {
 
     pub fn to_str(&self) -> Result<&str> {
         match self {
-            Variable::String(string) => Ok(&string),
+            Variable::String(string) => Ok(string),
             _ => Err(Error::new_internal(
                 String::from("Variable::to_str"),
                 String::from(""),
@@ -50,17 +50,17 @@ impl Variable {
     }
 
     pub fn equals_type(&self, v2: &Self) -> bool {
-        match (self, v2) {
-            (Variable::None, Variable::None) => true,
-            (Variable::Bool(_), Variable::Bool(_)) => true,
-            (Variable::Int(_), Variable::Int(_)) => true,
-            (Variable::Float(_), Variable::Float(_)) => true,
-            (Variable::String(_), Variable::String(_)) => true,
-            (Variable::Vector(_), Variable::Vector(_)) => true,
-            (Variable::Object(_), Variable::Object(_)) => true,
-            (Variable::Json(_), Variable::Json(_)) => true,
-            _ => false,
-        }
+        matches!(
+            (self, v2),
+            (Variable::None, Variable::None)
+                | (Variable::Bool(_), Variable::Bool(_))
+                | (Variable::Int(_), Variable::Int(_))
+                | (Variable::Float(_), Variable::Float(_))
+                | (Variable::String(_), Variable::String(_))
+                | (Variable::Vector(_), Variable::Vector(_))
+                | (Variable::Object(_), Variable::Object(_))
+                | (Variable::Json(_), Variable::Json(_))
+        )
     }
 
     pub fn equals_value(&self, v2: &Self) -> bool {
@@ -113,7 +113,12 @@ impl Variable {
                 nodes: vec![],
             },
             Variable::Vector(vec) => {
-                let nodes = vec.iter().map(|v| v.clone()).map(|v| v.to_node()).collect();
+                let nodes = vec
+                    .iter()
+                    .cloned()
+                    .map(|v| v.clone())
+                    .map(|v| v.to_node())
+                    .collect();
                 Node {
                     value: NodeEnum::Keyword(Keyword::Vec),
                     nodes,
@@ -200,7 +205,7 @@ impl Variable {
                 ));
             }
             Variable::Vector(ref vec) => {
-                if vec.len() == 0 {
+                if vec.is_empty() {
                     return Ok(Variable::None);
                 }
                 let inx = match f {

@@ -1,31 +1,25 @@
 use crate::{
-    core::{task::TrackingTask, types::State},
+    core::{handler::Report, task::TrackingTask, types::State},
     error::types::Error,
+    models::report::ReportModel,
 };
 
 use super::interface::{PResult, Persistance};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+#[derive(Default)]
 // InMemoryPersistance implements Persistance for in memory hash map.
 pub struct InMemoryPersistance {
     data: HashMap<Uuid, u32>,
     pub tasks: HashMap<Uuid, TrackingTask>,
+    last_report: i32,
+    pub reports: HashMap<i32, ReportModel>,
 }
 
 impl InMemoryPersistance {
     pub fn new() -> Self {
-        InMemoryPersistance {
-            data: HashMap::new(),
-            tasks: HashMap::new(),
-        }
-    }
-}
-
-// default implementation for InMemoryPersistance.
-impl Default for InMemoryPersistance {
-    fn default() -> Self {
-        Self::new()
+        InMemoryPersistance::default()
     }
 }
 
@@ -86,5 +80,23 @@ impl Persistance for InMemoryPersistance {
             .filter(|(_, tt)| statuses.contains(&tt.status))
             .map(|(_, tt)| tt.clone())
             .collect())
+    }
+
+    fn save_report(&mut self, report: &Report) -> PResult<i32> {
+        self.last_report += 1;
+        self.reports
+            .insert(self.last_report, ReportModel::from_report(report));
+        Ok(self.last_report)
+    }
+
+    fn read_reports(&mut self, uuid: Uuid) -> PResult<Option<Vec<ReportModel>>> {
+        Ok(Some(
+            self.reports
+                .clone()
+                .into_iter()
+                .filter(|rm| rm.1.task_id == uuid.to_string())
+                .map(|rm| rm.1)
+                .collect(),
+        ))
     }
 }

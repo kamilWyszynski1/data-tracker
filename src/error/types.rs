@@ -1,3 +1,7 @@
+use rocket::http::{ContentType, Status};
+use rocket::response::{self, Responder, Response};
+use rocket::Request;
+use serde::Serialize;
 use std::error::Error as StdError;
 use std::fmt::Result as FmtResult;
 use std::fmt::{Display, Formatter};
@@ -6,7 +10,7 @@ use std::result::Result as StdResult;
 /// Wrapper for Result from standard library to be used across application.
 pub type Result<T> = StdResult<T, Error>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum EvalError {
     InvalidType {
         operation: String,
@@ -39,7 +43,7 @@ impl EvalError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PersistanceError {
     /// Indicates on internal errors like db connection, invalid query.
     Internal { msg: String, err: String },
@@ -67,7 +71,7 @@ impl Display for PersistanceError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 /// Enum for handling errors for whole application.
 pub enum Error {
     Eval(EvalError),
@@ -77,6 +81,17 @@ pub enum Error {
         msg: String,
         err: String,
     },
+}
+
+#[rocket::async_trait]
+impl<'r> Responder<'r, 'static> for Error {
+    fn respond_to(self, req: &'r Request<'_>) -> response::Result<'static> {
+        let value = serde_json::json!(self);
+        Response::build_from(value.respond_to(req).unwrap())
+            .status(Status::InternalServerError)
+            .header(ContentType::JSON)
+            .ok()
+    }
 }
 
 impl Error {

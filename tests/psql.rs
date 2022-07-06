@@ -35,7 +35,7 @@ async fn test_psql_connector() {
         return;
     }
 
-    env_logger::try_init();
+    env_logger::try_init().ok();
     let (shutdown_notify, shutdown_recv) = broadcast::channel(1);
     let (tt_send, receive) = channel::<TrackingTask>(10);
     let (_, cmd_receive) = channel::<TaskCommand>(10);
@@ -125,7 +125,7 @@ async fn test_changes_monitor() {
         return;
     }
 
-    env_logger::try_init();
+    env_logger::try_init().ok();
 
     let (sender, mut receiver) = channel::<InputData>(1);
     let (shutdown_sender, shutdown_receiver) = broadcast::channel(1);
@@ -163,7 +163,7 @@ async fn test_changes_monitor_whole_flow() {
         return;
     }
 
-    env_logger::try_init();
+    env_logger::try_init().ok();
 
     let (client, psql_cfg) = prep_psql().await;
     let (shutdown_notify, shutdown_recv) = broadcast::channel(1);

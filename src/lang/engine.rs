@@ -1,8 +1,4 @@
-use super::{
-    eval::EvalForest,
-    node::{Node, Stack},
-    variable::Variable,
-};
+use super::{eval::EvalForest, node::Node, variable::Variable};
 use crate::error::types::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -117,10 +113,12 @@ pub fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Va
 
     variables
         .get("OUT")
-        .ok_or(Error::new_eval_internal(
-            String::from("evaluate"),
-            String::from("failed to get 'OUT' variable"),
-        ))
+        .ok_or_else(|| {
+            Error::new_eval_internal(
+                String::from("evaluate"),
+                String::from("failed to get 'OUT' variable"),
+            )
+        })
         .and_then(|v| Ok(v.clone()))
 }
 

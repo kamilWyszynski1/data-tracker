@@ -1,11 +1,13 @@
 use super::interface::PResult;
 use super::interface::Persistance;
+use crate::core::handler::Report;
 use crate::core::task::TrackingTask;
 use crate::core::types::State;
 use crate::diesel::OptionalExtension;
 use crate::diesel::RunQueryDsl;
 use crate::error::types::Error;
 use crate::models::location::Location;
+use crate::models::report::ReportModel;
 use crate::models::task::TaskModel;
 use crate::schema::*;
 use diesel::{insert_into, ExpressionMethods, QueryDsl};
@@ -151,13 +153,49 @@ impl Persistance for SqliteClient {
             .map(|tm| TrackingTask::from_task_model(&tm))
             .collect::<PResult<Vec<TrackingTask>>>()
     }
+
+    fn save_report(&mut self, report: &Report) -> PResult<i32> {
+        use crate::schema::reports::dsl::*;
+
+        let model = ReportModel::from_report(report);
+        insert_into(reports)
+            .values(&model)
+            .execute(&self.conn)
+            .and_then(|_| -> Result<i32, diesel::result::Error> {
+                reports.select(id).order(id.desc()).first(&self.conn)
+            })
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("empty Option from query update_task_status"),
+                    err.to_string(),
+                )
+            })
+    }
+
+    fn read_reports(&mut self, uuid: Uuid) -> PResult<Option<Vec<ReportModel>>> {
+        use crate::schema::reports::dsl::*;
+
+        let report_models: Vec<ReportModel> = reports
+            .select((task_id, phases, failed, start))
+            .filter(task_id.eq(uuid.to_string()))
+            .load(&self.conn)
+            .map_err(|err| {
+                Error::new_persistance_internal(
+                    String::from("failed to execute read_reports query"),
+                    err.to_string(),
+                )
+            })?;
+        if report_models.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(report_models))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::core::task::{InputData, TrackingTask};
+    use crate::core::task::{TaskInput, TrackingTask};
     use crate::core::types::*;
-    use crate::error::types::Result;
     use crate::lang::engine::Definition;
     use crate::lang::eval::EvalForest;
     use crate::persistance::interface::Persistance;
@@ -165,17 +203,11 @@ mod tests {
     use diesel::{Connection, SqliteConnection};
     use diesel_migrations::embed_migrations;
     use std::fs::{self, File};
-    use std::sync::Arc;
-    use std::time::Duration;
     use uuid::Uuid;
 
     use super::SqliteClient;
 
     embed_migrations!("migrations");
-
-    async fn test_get_data_fn() -> Result<InputData> {
-        Ok(InputData::String(String::from("test")))
-    }
 
     #[test]
     fn test_save_read_task() {
@@ -199,7 +231,7 @@ mod tests {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
+            data_fn: None,
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
@@ -210,7 +242,9 @@ mod tests {
             eval_forest,
             callbacks: None,
             status: State::Created,
-            input: None,
+            input: Some(TaskInput::String {
+                value: String::from("test"),
+            }),
             kind: None,
             kind_request: TaskKindRequest::Ticker { interval_secs: 1 },
         };
@@ -249,7 +283,7 @@ mod tests {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
+            data_fn: None,
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
@@ -258,7 +292,9 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest: eval_forest.clone(),
-            input: None,
+            input: Some(TaskInput::String {
+                value: String::from("test"),
+            }),
             callbacks: None,
             status: State::Created,
             kind: None,
@@ -268,7 +304,7 @@ mod tests {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
+            data_fn: None,
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
@@ -277,7 +313,9 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest: eval_forest.clone(),
-            input: None,
+            input: Some(TaskInput::String {
+                value: String::from("test"),
+            }),
             callbacks: None,
             status: State::Running,
             kind: None,
@@ -287,7 +325,7 @@ mod tests {
             id,
             name: Some(String::from("name")),
             description: Some(String::from("description")),
-            data_fn: Some(Arc::new(Box::new(move || Box::pin(test_get_data_fn())))),
+            data_fn: None,
             spreadsheet_id: String::from("spreadsheet_id"),
             starting_position: String::from("starting_position"),
             sheet: String::from("sheet"),
@@ -296,7 +334,9 @@ mod tests {
             timestamp_position: TimestampPosition::Before,
             invocations: None,
             eval_forest,
-            input: None,
+            input: Some(TaskInput::String {
+                value: String::from("test"),
+            }),
             callbacks: None,
             status: State::Quit,
             kind: None,

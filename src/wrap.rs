@@ -172,6 +172,7 @@ pub struct StdoutAPI {}
 #[async_trait]
 impl API for StdoutAPI {
     async fn write(&self, values: Vec<Vec<String>>, sheet_id: &str, range: &str) -> Result<()> {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         info!("{:?} {} {}", values, sheet_id, range);
         Ok(())
     }

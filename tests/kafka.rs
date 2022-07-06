@@ -36,7 +36,7 @@ async fn test_kafka_connector() {
         println!("skipped");
         return;
     }
-    env_logger::try_init();
+    env_logger::try_init().ok();
 
     let cfg = KafkaConfig {
         topic: String::from("test_topic"),
@@ -86,12 +86,12 @@ async fn test_kafka_connector() {
 
 #[tokio::test]
 async fn test_kafka_connector_whole_flow() {
-    if !can_be_run() {
-        println!("skipped");
-        return;
-    }
+    // if !can_be_run() {
+    //     println!("skipped");
+    //     return;
+    // }
 
-    env_logger::try_init();
+    env_logger::try_init().ok();
 
     let (shutdown_notify, shutdown_recv) = broadcast::channel(1);
     let (tt_send, receive) = channel::<TrackingTask>(10);

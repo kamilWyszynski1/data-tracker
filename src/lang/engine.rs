@@ -113,10 +113,12 @@ pub fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Va
 
     variables
         .get("OUT")
-        .ok_or(Error::new_eval_internal(
-            String::from("evaluate"),
-            String::from("failed to get 'OUT' variable"),
-        ))
+        .ok_or_else(|| {
+            Error::new_eval_internal(
+                String::from("evaluate"),
+                String::from("failed to get 'OUT' variable"),
+            )
+        })
         .and_then(|v| Ok(v.clone()))
 }
 

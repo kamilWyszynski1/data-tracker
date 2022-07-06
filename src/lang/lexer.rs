@@ -96,7 +96,7 @@ impl Keyword {
             | Keyword::MapInPlace
             | Keyword::Filter => 2,
             Keyword::Vec => {
-                if nodes.len() == 0 {
+                if nodes.is_empty() {
                     return Err(Error::new_eval_internal(
                         String::from("Keyword::check_arguments_count"),
                         format!(
@@ -126,15 +126,17 @@ impl Keyword {
             .len()
             .eq(&wanted)
             .then(|| 0)
-            .ok_or(Error::new_eval_internal(
-                String::from("Keyword::check_arguments_count"),
-                format!(
-                    "keyword: {:?} - wanted {} arguments, got {}",
-                    self,
-                    wanted,
-                    nodes.len()
-                ),
-            ))
+            .ok_or_else(|| {
+                Error::new_eval_internal(
+                    String::from("Keyword::check_arguments_count"),
+                    format!(
+                        "keyword: {:?} - wanted {} arguments, got {}",
+                        self,
+                        wanted,
+                        nodes.len()
+                    ),
+                )
+            })
             .map(|_| ())
     }
 }
@@ -286,7 +288,7 @@ impl Parser {
                 }
                 Token::Var(ref v) => pt.push(Node::new_var(v.clone())),
                 Token::Keyword(_) => {
-                    self.parse().and_then(|parsed| Some(pt.push(parsed)));
+                    self.parse().map(|parsed| pt.push(parsed));
                 }
                 _ => {}
             }

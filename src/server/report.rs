@@ -36,9 +36,9 @@ pub async fn get_reports(db: &State<Db>, task_id: String) -> Result<Option<Repor
         .read_reports(uuid)
         .await?
         .map(|models| -> Vec<Report> { models.into_iter().map(Report::from_model).collect() })
-        .and_then(|reports| {
+        .map(|reports| {
             debug!("reports: {:?}", reports);
-            Some(reports)
+            reports
         })
         .map(|reports| Reports { reports }))
 }

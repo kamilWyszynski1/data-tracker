@@ -47,7 +47,7 @@ impl Stack {
 
     fn pop(&mut self) {
         self.stack.pop_back();
-        if self.stack.len() == 0 {
+        if self.stack.is_empty() {
             self.should_break = false;
         }
     }
@@ -383,10 +383,7 @@ fn extract(nodes: &[Variable]) -> Result<Variable> {
     let mut iter = nodes.iter();
     let v1 = iter.next().unwrap();
     let v2 = iter.next().unwrap();
-    let deep = iter
-        .next()
-        .and_then(|f| Some(f.is_true()))
-        .unwrap_or_default(); // optional argument
+    let deep = iter.next().map(|f| f.is_true()).unwrap_or_default(); // optional argument
 
     v1.extract(v2, deep)
 }
@@ -491,10 +488,12 @@ fn run_subtree(
 
     subtrees
         .get(subtree_name)
-        .ok_or(Error::new_eval_internal(
-            String::from("run_subtree_for_each"),
-            format!("invalid {} subtree", subtree_name),
-        ))
+        .ok_or_else(|| {
+            Error::new_eval_internal(
+                String::from("run_subtree_for_each"),
+                format!("invalid {} subtree", subtree_name),
+            )
+        })
         .and_then(|subtree| {
             stack.push(subtree_name.to_string()); // add subtree call to
             fire_subtree(subtree, variables, subtrees, stack, metadata)
@@ -526,7 +525,7 @@ fn if_check(
     // eval first node which is conditional value.
     nodes[0]
         .start_evaluation(state, subtrees)
-        .and_then(|v| Ok(v.is_true()))
+        .map(|v| v.is_true())
 }
 
 fn break_function(stack: &mut Stack) {
@@ -596,6 +595,7 @@ fn filter(
     match filtered_variable {
         Variable::Vector(vec) => Ok(Variable::Vector(
             vec.iter()
+                .cloned()
                 .map(|v| v.clone())
                 .filter(|v| {
                     let mut filtering_node = nodes[1].clone();

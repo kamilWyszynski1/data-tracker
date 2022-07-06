@@ -185,7 +185,7 @@ impl Persistance for SqliteClient {
                     err.to_string(),
                 )
             })?;
-        if report_models.len() == 0 {
+        if report_models.is_empty() {
             return Ok(None);
         }
         Ok(Some(report_models))
@@ -194,7 +194,7 @@ impl Persistance for SqliteClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::task::{InputData, TaskInput, TrackingTask};
+    use crate::core::task::{TaskInput, TrackingTask};
     use crate::core::types::*;
     use crate::lang::engine::Definition;
     use crate::lang::eval::EvalForest;

@@ -103,10 +103,9 @@ impl Engine {
 pub fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Variable> {
     let mut variables = HashMap::new();
 
-    in_var.and_then(|variable| {
+    in_var.map(|variable| {
         variables.insert(String::from("IN"), variable.clone());
         variables.insert(String::from("OUT"), variable);
-        Some(())
     });
 
     fire(&eval_forest.roots, &mut variables, &eval_forest.subtrees)?;
@@ -119,7 +118,7 @@ pub fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Va
                 String::from("failed to get 'OUT' variable"),
             )
         })
-        .and_then(|v| Ok(v.clone()))
+        .map(|v| v.clone())
 }
 
 pub fn fire(

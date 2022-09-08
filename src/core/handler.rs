@@ -582,7 +582,7 @@ mod tests {
             data_fn(),
             TaskKindRequest::Triggered(Hook::None),
         );
-        let id = tt.id.clone();
+        let id = tt.id;
 
         let db = InMemoryPersistance::new();
         let channels_manager = ChannelsManager::default();

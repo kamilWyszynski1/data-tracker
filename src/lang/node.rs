@@ -11,7 +11,7 @@ use std::{
     fmt::{self, Display},
 };
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 /// Enum for Node type.
 pub enum NodeEnum {
     None,
@@ -596,7 +596,6 @@ fn filter(
         Variable::Vector(vec) => Ok(Variable::Vector(
             vec.iter()
                 .cloned()
-                .map(|v| v.clone())
                 .filter(|v| {
                     let mut filtering_node = nodes[1].clone();
 

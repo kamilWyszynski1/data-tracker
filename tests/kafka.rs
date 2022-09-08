@@ -25,7 +25,7 @@ extern crate log;
 
 pub fn can_be_run() -> bool {
     match std::env::var("INTEGRATION") {
-        Ok(val) => return val == String::from("1"),
+        Ok(val) => val == *"1",
         Err(_) => false,
     }
 }
@@ -86,10 +86,10 @@ async fn test_kafka_connector() {
 
 #[tokio::test]
 async fn test_kafka_connector_whole_flow() {
-    // if !can_be_run() {
-    //     println!("skipped");
-    //     return;
-    // }
+    if !can_be_run() {
+        println!("skipped");
+        return;
+    }
 
     env_logger::try_init().ok();
 

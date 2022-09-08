@@ -11,7 +11,7 @@ use serde_json::json;
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Serialize)]
 // Will be translated into [`core::types::TaskKind`];
 pub enum TaskKindRequest {
     Ticker { interval_secs: u64 }, // task with ticker.

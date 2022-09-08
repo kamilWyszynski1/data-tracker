@@ -6,7 +6,7 @@ use datatracker_rust::core::channels::ChannelsManager;
 use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::{InputData, TaskInput, TrackingTask};
 use datatracker_rust::core::tracker::Tracker;
-use datatracker_rust::core::types::{Direction, Hook, TaskKind};
+use datatracker_rust::core::types::{Direction, Hook};
 use datatracker_rust::lang::engine::Definition;
 use datatracker_rust::lang::eval::EvalForest;
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
@@ -14,8 +14,8 @@ use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::server::task::TaskKindRequest;
 use datatracker_rust::wrap::TestAPI;
 use postgres::NoTls;
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::channel;
-use tokio::sync::{broadcast, Mutex};
 use tokio::time::{sleep, Duration};
 use tokio_postgres::Client;
 #[macro_use]
@@ -23,7 +23,7 @@ extern crate log;
 
 pub fn can_be_run() -> bool {
     match std::env::var("INTEGRATION") {
-        Ok(val) => return val == String::from("1"),
+        Ok(val) => val == *"1",
         Err(_) => false,
     }
 }
@@ -94,7 +94,7 @@ async fn test_psql_connector() {
         empty_string,
         String::from("A1"),
         Direction::Horizontal,
-        getter_from_task_input(&input).and_then(|f| Some(f)),
+        getter_from_task_input(&input),
         TaskKindRequest::Ticker { interval_secs: 1 },
     )
     .with_eval_forest(ef)

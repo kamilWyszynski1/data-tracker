@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 
 /// Supported types for task's input data.
 /// Should match with InputData.
-#[derive(FromSqlRow, AsExpression, Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
+#[derive(FromSqlRow, AsExpression, Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[sql_type = "Text"]
 pub enum InputType {
@@ -63,7 +63,7 @@ where
     }
 }
 
-#[derive(FromSqlRow, AsExpression, Debug, Clone, Copy, Deserialize, PartialEq)]
+#[derive(FromSqlRow, AsExpression, Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[sql_type = "Text"]
 /// State is state of currently handled task.
 pub enum State {
@@ -136,7 +136,7 @@ where
 }
 
 // Direction indicates direction of written data.
-#[derive(AsExpression, FromSqlRow, Clone, Debug, Copy, Deserialize, PartialEq)]
+#[derive(AsExpression, FromSqlRow, Clone, Debug, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[sql_type = "Text"]
 pub enum Direction {
@@ -185,7 +185,7 @@ where
 }
 
 // TimestampPosition indicates position of timestamp in the data.
-#[derive(AsExpression, FromSqlRow, Clone, Debug, Copy, PartialEq)]
+#[derive(AsExpression, FromSqlRow, Clone, Debug, Copy, PartialEq, Eq)]
 #[sql_type = "Text"]
 pub enum TimestampPosition {
     None, // timestamp will not be written.
@@ -244,7 +244,7 @@ pub enum TaskKind {
     Clicked { ch: Arc<Mutex<Receiver<()>>> }, // Clicked that will be triggered by e.g. api call or clicked button.
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum Hook {
     None, // Empty hook, for testing purposes.
     PSQL {

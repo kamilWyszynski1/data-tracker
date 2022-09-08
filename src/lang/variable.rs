@@ -113,12 +113,7 @@ impl Variable {
                 nodes: vec![],
             },
             Variable::Vector(vec) => {
-                let nodes = vec
-                    .iter()
-                    .cloned()
-                    .map(|v| v.clone())
-                    .map(|v| v.to_node())
-                    .collect();
+                let nodes = vec.iter().cloned().map(|v| v.to_node()).collect();
                 Node {
                     value: NodeEnum::Keyword(Keyword::Vec),
                     nodes,

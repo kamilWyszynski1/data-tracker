@@ -5,7 +5,7 @@ use core::panic;
 use serde::{Deserialize, Serialize};
 
 /// All supported keyword that can be used in steps declarations.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub enum Keyword {
     None,   // default value, not supported by language.
     Define, // defines new variable: DEFINE(var, 1).
@@ -125,7 +125,7 @@ impl Keyword {
         nodes
             .len()
             .eq(&wanted)
-            .then(|| 0)
+            .then_some(0)
             .ok_or_else(|| {
                 Error::new_eval_internal(
                     String::from("Keyword::check_arguments_count"),
@@ -141,7 +141,7 @@ impl Keyword {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// Represents one independent piece of declaration.
 pub enum Token {
     LeftBracket,
@@ -288,7 +288,9 @@ impl Parser {
                 }
                 Token::Var(ref v) => pt.push(Node::new_var(v.clone())),
                 Token::Keyword(_) => {
-                    self.parse().map(|parsed| pt.push(parsed));
+                    if let Some(parsed) = self.parse() {
+                        pt.push(parsed)
+                    }
                 }
                 _ => {}
             }
@@ -535,9 +537,7 @@ mod tests {
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
 
         let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
-        let n3 = Node::new_keyword(Keyword::Add)
-            .append(n1)
-            .append(n2.clone());
+        let n3 = Node::new_keyword(Keyword::Add).append(n1).append(n2);
         let n4 = Node::new_keyword(Keyword::Mult)
             .append(n3)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
@@ -637,7 +637,7 @@ mod tests {
 
         let mut state = HashMap::default();
         let def = Definition::new(vec![
-            format!("DEFINE(var, OBJECT('{}'))", map_str).to_string(),
+            format!("DEFINE(var, OBJECT('{}'))", map_str),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
             String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
             String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
@@ -684,7 +684,7 @@ mod tests {
         map.insert(String::from("kty"), obj.clone());
         let mut state = HashMap::default();
         let def = Definition::new(vec![
-            format!("DEFINE(var, object('{}'))", map_str).to_string(),
+            format!("DEFINE(var, object('{}'))", map_str),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
         ]);
         fire_for_test(def, &mut state, &subtrees).unwrap();
@@ -710,7 +710,7 @@ mod tests {
         let subtrees = HashMap::new();
 
         let def = Definition::new(vec![
-            format!("DEFINE(var, JSON('{}'))", data).to_string(),
+            format!("DEFINE(var, JSON('{}'))", data),
             "DEFINE(var2, EXTRACT(GET(var), name))".to_string(),
         ]);
         fire_for_test(def, &mut state, &subtrees).unwrap();
@@ -752,8 +752,7 @@ mod tests {
         let def = Definition::new(vec![format!(
             "DEFINE(var, VEC(1, INT(2), FLOAT(3.2), JSON('{}')))",
             data
-        )
-        .to_string()]);
+        )]);
         test(
             def,
             "var".to_string(),

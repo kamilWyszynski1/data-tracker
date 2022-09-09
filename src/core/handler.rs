@@ -7,12 +7,14 @@ use super::types::State;
 use crate::core::types::TaskKind;
 use crate::error::types::LogExt;
 use crate::error::types::{Error, Result};
-use crate::lang::eval::evaluate_data;
+use crate::lang::engine::Engine;
+use crate::lang::process::Process;
 use crate::lang::variable::Variable;
 use crate::models::report::ReportModel;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use futures::Future;
 use log::info;
@@ -257,8 +259,8 @@ where
 
             let evaluated = report
                 .section(String::from("EVALUATE"), async || {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    evaluate_data(input_data, &self.task.eval_forest)
+                    // tokio::time::sleep(Duration::from_millis(50)).await;
+                    evaluate_data(input_data.clone(), self.task.process.clone())
                 })
                 .await;
 
@@ -317,6 +319,16 @@ where
         })
         .await;
     }
+}
+
+/// Uses Engine utility to run task's process.
+fn evaluate_data(input_data: InputData, task_process: Process) -> Result<Variable> {
+    let mut engine = Engine::new(Variable::from(input_data), task_process)?;
+
+    engine.fire()?;
+
+    let out = engine.get("OUT").context("OUT variable not found")?;
+    Ok(out.clone())
 }
 
 fn receive_input_data(task: TrackingTask, sender: mpsc::Sender<InputData>) {

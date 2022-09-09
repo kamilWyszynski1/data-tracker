@@ -1,22 +1,26 @@
-use super::engine::Engine;
-use super::variable::Variable;
 use super::{engine::Definition, node::Node};
+use crate::error::types::{Error, Result};
 use crate::lang::lexer::{Lexer, Parser};
-use crate::{
-    core::task::InputData,
-    error::types::{Error, Result},
-};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq)]
-pub struct EvalForest {
+pub(super) struct EvalForest {
     pub roots: Vec<Node>,
     pub subtrees: HashMap<String, Vec<Node>>,
 }
 
 impl EvalForest {
-    pub fn from_definition(def: &Definition) -> Self {
+    /// Serializes whole tree to json string.
+    pub fn to_string(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
+    }
+}
+
+impl From<Definition> for EvalForest {
+    fn from(def: Definition) -> Self {
         let mut roots = vec![];
 
         // parse base steps in Definition.
@@ -38,16 +42,24 @@ impl EvalForest {
 
         EvalForest { roots, subtrees }
     }
+}
 
-    /// Serializes whole tree to json string.
-    pub fn to_string(&self) -> Result<String> {
-        serde_json::to_string(self)
-            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
-    }
+impl TryFrom<&str> for EvalForest {
+    type Error = Error;
 
     /// Loads tree from json string.
-    pub fn from_string(s: &str) -> Result<Self> {
-        serde_json::from_str::<Self>(s)
+    fn try_from(value: &str) -> Result<Self> {
+        serde_json::from_str::<Self>(value)
+            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
+    }
+}
+
+impl TryFrom<String> for EvalForest {
+    type Error = Error;
+
+    /// Loads tree from json string.
+    fn try_from(value: String) -> Result<Self> {
+        serde_json::from_str::<Self>(&value)
             .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
     }
 }
@@ -59,19 +71,4 @@ impl IntoIterator for EvalForest {
     fn into_iter(self) -> Self::IntoIter {
         self.roots.into_iter()
     }
-}
-
-/// Function creates new engine and calls fire method for given Definition.
-pub fn evaluate_data(data: &InputData, ef: &EvalForest) -> Result<Variable> {
-    let mut engine = Engine::new(Variable::from_input_data(data), ef.clone());
-    engine.fire()?;
-    Ok(engine
-        .get("OUT")
-        .ok_or_else(|| {
-            Error::new_eval_internal(
-                String::from("evaluate_data"),
-                String::from("There is not OUT variable!!!"),
-            )
-        })?
-        .clone())
 }

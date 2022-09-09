@@ -8,7 +8,7 @@ use datatracker_rust::core::task::{InputData, TaskInput, TrackingTask};
 use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::core::types::{Direction, Hook};
 use datatracker_rust::lang::engine::Definition;
-use datatracker_rust::lang::eval::EvalForest;
+use datatracker_rust::lang::process::Process;
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
 use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::server::task::TaskKindRequest;
@@ -77,8 +77,11 @@ async fn test_psql_connector() {
         tracker.start().await;
     });
 
-    let ef =
-        EvalForest::from_definition(&Definition::new(vec![String::from("DEFINE(OUT, GET(IN))")]));
+    let process = Process::new(
+        "main process",
+        vec![Definition::new(vec![String::from("DEFINE(OUT, GET(IN))")])],
+        None,
+    );
 
     let input = TaskInput::PSQL {
         host: psql_cfg.host,
@@ -97,7 +100,7 @@ async fn test_psql_connector() {
         getter_from_task_input(&input),
         TaskKindRequest::Ticker { interval_secs: 1 },
     )
-    .with_eval_forest(ef)
+    .with_process(process)
     .with_input(input);
 
     tt_send.send(tt).await.unwrap();
@@ -199,10 +202,14 @@ async fn test_changes_monitor_whole_flow() {
         tracker.start().await;
     });
 
-    let ef = EvalForest::from_definition(&Definition::new(vec![
-        String::from("DEFINE(J, JSON(GET(IN)))"),
-        String::from("DEFINE(OUT, EXTRACT(GET(J), id))"),
-    ]));
+    let process = Process::new(
+        "main process",
+        vec![Definition::new(vec![
+            String::from("DEFINE(J, JSON(GET(IN)))"),
+            String::from("DEFINE(OUT, EXTRACT(GET(J), id))"),
+        ])],
+        None,
+    );
 
     let empty_string = String::from("test");
     let tt = TrackingTask::new(
@@ -220,7 +227,7 @@ async fn test_changes_monitor_whole_flow() {
             channel: psql_cfg.channel_name.as_ref().unwrap().to_string(),
         }),
     )
-    .with_eval_forest(ef);
+    .with_process(process);
 
     tt_send.send(tt).await.unwrap();
 

@@ -26,7 +26,7 @@ table! {
         direction -> Text,
         with_timestamp -> Bool,
         timestamp_position -> Text,
-        eval_forest -> Text,
+        process -> Text,
         input -> Nullable<Text>,
         status -> Text,
         kind -> Text,
@@ -35,4 +35,8 @@ table! {
 
 joinable!(reports -> tasks (task_id));
 
-allow_tables_to_appear_in_same_query!(location, reports, tasks,);
+allow_tables_to_appear_in_same_query!(
+    location,
+    reports,
+    tasks,
+);

@@ -1,10 +1,9 @@
+use super::lexer::Keyword;
+use super::node::{Node, NodeEnum};
 use crate::core::task::InputData;
 use crate::error::types::{Error, Result};
 use serde_json::Value;
 use std::{collections::HashMap, fmt};
-
-use super::lexer::Keyword;
-use super::node::{Node, NodeEnum};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Variable {
@@ -19,15 +18,6 @@ pub enum Variable {
 }
 
 impl Variable {
-    /// Translated InputData enum to Variable enum.
-    pub fn from_input_data(td: &InputData) -> Self {
-        match td {
-            InputData::String(s) => Variable::String(s.clone()),
-            InputData::Json(j) => Variable::Json(j.clone()),
-            InputData::Vector(v) => Variable::Vector(v.iter().map(Self::from_input_data).collect()),
-        }
-    }
-
     pub fn to_str(&self) -> Result<&str> {
         match self {
             Variable::String(string) => Ok(string),
@@ -143,6 +133,17 @@ impl fmt::Display for Variable {
         // operation succeeded or failed. Note that `write!` uses syntax which
         // is very similar to `println!`.
         write!(f, "{}", buf)
+    }
+}
+
+impl From<InputData> for Variable {
+    /// Translates InputData enum to Variable enum.
+    fn from(input_data: InputData) -> Self {
+        match input_data {
+            InputData::String(s) => Variable::String(s.clone()),
+            InputData::Json(j) => Variable::Json(j.clone()),
+            InputData::Vector(v) => Variable::Vector(v.into_iter().map(Self::from).collect()),
+        }
     }
 }
 

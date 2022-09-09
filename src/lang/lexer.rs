@@ -324,9 +324,11 @@ mod tests {
             eval::EvalForest,
             lexer::{Keyword, Node, NodeEnum, Parser, Token},
             node::{EvalMetadata, SharedState},
+            process::Process,
             variable::Variable,
         },
     };
+    use rocket::data::N;
     use serde_json::Value;
     use std::collections::HashMap;
 
@@ -889,7 +891,7 @@ mod tests {
                 },
             }]),
         };
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(None, &eval_forest).expect("could not evaluate");
         assert_eq!(out, Variable::Int(30));
 
@@ -914,7 +916,7 @@ mod tests {
                 },
             ]),
         };
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(None, &eval_forest).expect("could not evaluate");
         assert_eq!(out, Variable::Int(400));
     }
@@ -936,7 +938,7 @@ mod tests {
     //         }]),
     //     };
 
-    //     let eval_forest = EvalForest::from_definition(&definition);
+    //     let eval_forest = EvalForest::from(definition);
     //     let mut engine = Engine::new(Variable::Int(10), eval_forest);
     //     engine.fire().expect("fire failed");
     //     assert_eq!(
@@ -985,7 +987,7 @@ mod tests {
     //         ]),
     //     };
 
-    //     let eval_forest = EvalForest::from_definition(&definition);
+    //     let eval_forest = EvalForest::from(definition);
     //     let mut engine = Engine::new(Variable::Int(10), eval_forest);
     //     engine.fire().expect("fire failed");
     //     assert_eq!(
@@ -1016,7 +1018,7 @@ mod tests {
     //         }]),
     //     };
 
-    //     let eval_forest = EvalForest::from_definition(&definition);
+    //     let eval_forest = EvalForest::from(definition);
     //     let mut engine = Engine::new(Variable::Int(10), eval_forest);
     //     let result = engine.fire();
     //     assert!(result.is_err());
@@ -1069,7 +1071,7 @@ mod tests {
             }]),
         };
 
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(Some(Variable::Int(125)), &eval_forest).expect("could not evaluate");
         assert_eq!(out, Variable::Int(135));
 
@@ -1085,7 +1087,7 @@ mod tests {
             }]),
         };
 
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(Some(Variable::Int(125)), &eval_forest).expect("could not evaluate");
         assert_eq!(out, Variable::Int(125));
 
@@ -1111,7 +1113,7 @@ mod tests {
             ]),
         };
 
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(Some(Variable::Int(1)), &eval_forest).expect("could not evaluate");
         assert_eq!(out, Variable::Int(155));
 
@@ -1125,8 +1127,10 @@ mod tests {
             steps: vec![String::from("IF(INT(1), DEFINE(var, INT(100)))")],
             subtrees: None,
         };
-        let eval_forest = EvalForest::from_definition(&definition);
-        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+
+        let process = Process::new("test", vec![definition], None);
+        let mut engine = Engine::new(Variable::Int(10), process).expect("could not create engine");
+
         engine.fire().expect("fire failed");
         assert_eq!(engine.get("var").unwrap(), &Variable::Int(100));
 
@@ -1134,8 +1138,10 @@ mod tests {
             steps: vec![String::from("IF(INT(123), DEFINE(var, INT(100)))")],
             subtrees: None,
         };
-        let eval_forest = EvalForest::from_definition(&definition);
-        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+
+        let process = Process::new("test", vec![definition], None);
+        let mut engine = Engine::new(Variable::Int(10), process).expect("could not create engine");
+
         engine.fire().expect("fire failed");
         assert!(engine.get("var").is_none());
 
@@ -1143,8 +1149,10 @@ mod tests {
             steps: vec![String::from("IF(BOOL(true), DEFINE(var, INT(100)))")],
             subtrees: None,
         };
-        let eval_forest = EvalForest::from_definition(&definition);
-        let mut engine = Engine::new(Variable::Int(10), eval_forest);
+
+        let process = Process::new("test", vec![definition], None);
+        let mut engine = Engine::new(Variable::Int(10), process).expect("could not create engine");
+
         engine.fire().expect("fire failed");
         assert_eq!(engine.get("var").unwrap(), &Variable::Int(100));
     }
@@ -1186,7 +1194,7 @@ mod tests {
             ]),
         };
 
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(Some(Variable::Int(2)), &eval_forest).expect("could not evaluate");
         assert_eq!(out, Variable::Int(2));
 
@@ -1207,7 +1215,7 @@ mod tests {
             }]),
         };
 
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(Some(Variable::Int(5)), &eval_forest).expect("could not evaluate");
         assert_eq!(out, Variable::Int(1));
 
@@ -1226,7 +1234,7 @@ mod tests {
             }]),
         };
 
-        let eval_forest = EvalForest::from_definition(&definition);
+        let eval_forest = EvalForest::from(definition);
         let out = evaluate(Some(Variable::Int(5)), &eval_forest)
             .expect_err("should be stack overflow error");
         assert_eq!(

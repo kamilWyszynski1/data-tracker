@@ -54,9 +54,6 @@ pub struct Engine {
     // common state for every definition.
     variables: HashMap<String, Variable>,
 
-    //TODO: refactor and delete.
-    eval_forest: EvalForest,
-
     // set of eval forest to run.
     eval_forests: Vec<EvalForest>,
 
@@ -68,7 +65,6 @@ impl Engine {
     pub fn default() -> Self {
         Engine {
             variables: HashMap::new(),
-            eval_forest: EvalForest::default(),
             eval_forests: vec![],
             mounted: HashMap::new(),
         }
@@ -83,20 +79,7 @@ impl Engine {
     /// a evaluation that will happen in engine. User should
     /// write wanted data to OUT at last as this variable will
     /// be taken out from Engine after all.
-    pub fn new(in_var: Variable, eval_forest: EvalForest) -> Self {
-        let mut variables = HashMap::new();
-        variables.insert(String::from("IN"), in_var.clone());
-        variables.insert(String::from("OUT"), in_var);
-
-        Engine {
-            variables,
-            eval_forest,
-            eval_forests: vec![],
-            mounted: HashMap::new(),
-        }
-    }
-
-    pub fn new2(in_var: Variable, process: Process) -> Result<Self> {
+    pub fn new(in_var: Variable, process: Process) -> Result<Self> {
         let mounted = mount_options(&process.mounts.unwrap_or_default())?;
 
         let mut variables = HashMap::new();
@@ -107,12 +90,11 @@ impl Engine {
         // parse Process into Vec of EvalForest.
 
         for def in process.definitions {
-            efs.push(EvalForest::from_definition(&def));
+            efs.push(EvalForest::from(def));
         }
 
         Ok(Self {
             variables,
-            eval_forest: EvalForest::default(),
             eval_forests: efs,
             mounted,
         })
@@ -122,26 +104,8 @@ impl Engine {
         self.variables.get(key)
     }
 
-    /// Takes definition run it step by step.
-    pub fn fire(&mut self) -> Result<()> {
-        let mut shared_state = SharedState {
-            variables: self.variables.clone(),
-            subtress: self.eval_forest.subtrees.clone(),
-            mounted: HashMap::new(),
-            eval_metadata: EvalMetadata::default(),
-        };
-
-        for root in self.eval_forest.roots.clone().into_iter() {
-            root.start_evaluation(&mut shared_state)?;
-        }
-
-        // rewrite variables from tree execution.
-        self.variables = shared_state.variables;
-        Ok(())
-    }
-
     /// Takes set of eval forest and runs them one by one.
-    pub fn fire2(&mut self) -> Result<()> {
+    pub fn fire(&mut self) -> Result<()> {
         let mut shared_state = SharedState {
             variables: self.variables.clone(),
             subtress: HashMap::default(),
@@ -216,8 +180,8 @@ mod tests {
 
         let process = process_file_to_struct(path).unwrap();
 
-        let mut engine = Engine::new2(Variable::None, process).unwrap();
-        engine.fire2().unwrap();
+        let mut engine = Engine::new(Variable::None, process).unwrap();
+        engine.fire().unwrap();
 
         assert_eq!(
             engine.get("OUT").unwrap(),

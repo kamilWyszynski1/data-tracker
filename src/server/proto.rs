@@ -60,7 +60,7 @@ fn get_stats_response_from_tts(tt: TrackingTask) -> GetStatsResponse {
         interval_secs: 10_i32,
         input: tt.input.unwrap_or_default().to_json(),
         status: tt.status.to_string(),
-        eval_forest: tt.eval_forest.to_string().unwrap_or_default(),
+        eval_forest: tt.process.try_to_string().unwrap_or_default(),
         till_next_call: 0,
         currently_running: true,
     }

@@ -8,7 +8,7 @@ CREATE TABLE tasks (
     direction           TEXT NOT NULL,
     with_timestamp      BOOLEAN NOT NULL,
     timestamp_position  TEXT NOT NULL,
-    eval_forest         TEXT NOT NULL,
+    process             TEXT NOT NULL,
     input               TEXT,
     status              TEXT NOT NULL,
     kind                TEXT NOT NULL

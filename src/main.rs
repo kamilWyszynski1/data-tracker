@@ -5,7 +5,7 @@ use datatracker_rust::core::task::TrackingTask;
 use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::core::types::{Direction, Hook};
 use datatracker_rust::lang::engine::Definition;
-use datatracker_rust::lang::eval::EvalForest;
+use datatracker_rust::lang::process::Process;
 use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::persistance::sqlite::{establish_connection, SqliteClient};
 use datatracker_rust::server::build::rocket;
@@ -50,9 +50,13 @@ async fn main() {
     );
     info!("initialized");
 
-    let ef = EvalForest::from_definition(&Definition::new(vec![String::from(
-        "DEFINE(OUT, EXTRACT(GET(IN), 0))",
-    )]));
+    let process = Process::new(
+        "main process",
+        vec![Definition::new(vec![String::from(
+            "DEFINE(OUT, EXTRACT(GET(IN), 0))",
+        )])],
+        None,
+    );
 
     tt_send
         .send(
@@ -68,7 +72,7 @@ async fn main() {
                     brokers: String::from("localhost:9092"),
                 }),
             )
-            .with_eval_forest(ef),
+            .with_process(process),
         )
         .await
         .unwrap();

@@ -1,5 +1,10 @@
 use super::engine::Definition;
+use crate::error::types::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::{
+    convert::{TryFrom, TryInto},
+    ops::Deref,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Represents different options for mounting things during process execution.
@@ -15,7 +20,7 @@ pub enum MountType {
     File,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 /// Highest level of nesting. Contains metadata about whole tree execution.
 pub struct Process {
     // name of a whole process.
@@ -26,6 +31,34 @@ pub struct Process {
 
     // set of mounts to perform.
     pub mounts: Option<Vec<MountOption>>,
+}
+
+impl Process {
+    pub fn new<S: Into<String>>(
+        name: S,
+        definitions: Vec<Definition>,
+        mounts: Option<Vec<MountOption>>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            definitions,
+            mounts,
+        }
+    }
+
+    pub fn try_to_string(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
+    }
+}
+
+impl TryFrom<String> for Process {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        serde_json::from_str::<Self>(&value)
+            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
+    }
 }
 
 #[cfg(test)]

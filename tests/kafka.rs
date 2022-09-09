@@ -7,7 +7,7 @@ use datatracker_rust::{
         tracker::Tracker,
         types::{Direction, Hook},
     },
-    lang::{engine::Definition, eval::EvalForest},
+    lang::{engine::Definition, process::Process},
     persistance::{in_memory::InMemoryPersistance, interface::Db},
     server::task::TaskKindRequest,
     wrap::TestAPI,
@@ -126,9 +126,13 @@ async fn test_kafka_connector_whole_flow() {
         tracker.start().await;
     });
 
-    let ef = EvalForest::from_definition(&Definition::new(vec![String::from(
-        "DEFINE(OUT, EXTRACT(GET(IN), 0))",
-    )]));
+    let process = Process::new(
+        "main process",
+        vec![Definition::new(vec![String::from(
+            "DEFINE(OUT, EXTRACT(GET(IN), 0))",
+        )])],
+        None,
+    );
 
     let empty_string = String::from("test");
     let tt = TrackingTask::new(
@@ -143,7 +147,7 @@ async fn test_kafka_connector_whole_flow() {
             brokers: String::from("localhost:9092"),
         }),
     )
-    .with_eval_forest(ef);
+    .with_process(process);
 
     tt_send.send(tt).await.unwrap();
 

@@ -10,20 +10,25 @@ pub enum Keyword {
     None,   // default value, not supported by language.
     Define, // defines new variable: DEFINE(var, 1).
     Get,    // returns defined variable: VAR(var).
-    Json,   // returns Variable::Json: JSON("{}").
-    Object, // return Variable::Object: Object(a, 1, b, INT(3), c, BOOL(true))
-    Vec,    // returns Variable::Vec: VEC(1,2,3,4).
     Extract,
+
+    Json,   // returns Variable::Json: JSON("{}").
+    Vec,    // returns Variable::Vec: VEC(1,2,3,4).
+    Object, // return Variable::Object: Object(a, 1, b, INT(3), c, BOOL(true))
     Bool,
     Int,
     Float,
+
     Add,
     Sub,
     Div,
     Mult,
-    HTTP,       // performs http request, has to return Variable::Json.
-    Log,        // logs given Variable.
+
+    HTTP, // performs http request, has to return Variable::Json.
+    Log,  // logs given Variable.
+
     RunSubtree, // takes 1 argument, subtree name: RunSubtree(subtree_name).
+
     // Takes no arguments, breaks from RunSubtree.
     // If RunSubtree are nested it'll break to root point.
     Break,
@@ -32,9 +37,13 @@ pub enum Keyword {
     // Can be chained like that: Eq(Eq(INT(1), INT(1)), Eq(FLOAT(2.5), FLOAT(2.5))).
     Eq,
     Neq,
+
     Map,        // can be used for vector/object values mapping: MAP(VEC(1,2,3), ADD(x, INT(4)))
     MapInPlace, // works same as Map but do not return variable, modifies given one.
     Filter,     // can be used for vector/object values filtering: FILTER(VEC(1,2,3), EQ(X, 2)))
+
+    // takes 1 argument - alias to mounted resource, reads its content as a string.
+    ReadMountedToString,
 }
 
 impl Keyword {
@@ -63,6 +72,7 @@ impl Keyword {
             "map" => Self::Map,
             "mapinplace" => Self::MapInPlace,
             "filter" => Self::Filter,
+            "readmountedtostring" => Self::ReadMountedToString,
             _ => Self::None,
         };
         if s == Self::None {
@@ -83,7 +93,8 @@ impl Keyword {
             | Keyword::Float
             | Keyword::HTTP
             | Keyword::Log
-            | Keyword::RunSubtree => 1,
+            | Keyword::RunSubtree
+            | Keyword::ReadMountedToString => 1,
             Keyword::Define
             | Keyword::Add
             | Keyword::Sub
@@ -309,14 +320,47 @@ mod tests {
     use crate::{
         error::types::Error,
         lang::{
-            engine::{evaluate, Definition, Engine, SubTree},
+            engine::{Definition, Engine, SubTree},
             eval::EvalForest,
             lexer::{Keyword, Node, NodeEnum, Parser, Token},
+            node::{EvalMetadata, SharedState},
             variable::Variable,
         },
     };
     use serde_json::Value;
     use std::collections::HashMap;
+
+    /// helper function to run fast evaluations.
+    fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Variable> {
+        let mut variables = HashMap::new();
+
+        in_var.map(|variable| {
+            variables.insert(String::from("IN"), variable.clone());
+            variables.insert(String::from("OUT"), variable);
+        });
+
+        let mut shared_state = SharedState {
+            variables,
+            subtress: eval_forest.subtrees.clone(),
+            mounted: HashMap::new(),
+            eval_metadata: EvalMetadata::default(),
+        };
+
+        for root in &eval_forest.roots {
+            root.start_evaluation(&mut shared_state)?;
+        }
+
+        shared_state
+            .variables
+            .get("OUT")
+            .ok_or_else(|| {
+                Error::new_eval_internal(
+                    String::from("evaluate"),
+                    String::from("failed to get 'OUT' variable"),
+                )
+            })
+            .map(|v| v.clone())
+    }
 
     #[test]
     fn test_simple_lexer() {
@@ -428,87 +472,76 @@ mod tests {
 
     #[test]
     fn test_eval() {
-        let mut state = HashMap::default();
-        let subtrees = HashMap::new();
-
         let var = String::from("var");
         let n1 = Node::new_var(var.clone());
+
+        let mut state = SharedState {
+            variables: HashMap::new(),
+            subtress: HashMap::new(),
+            mounted: HashMap::new(),
+            eval_metadata: EvalMetadata::default(),
+        };
         assert_eq!(
-            n1.start_evaluation(&mut state, &subtrees).unwrap(),
+            n1.start_evaluation(&mut state).unwrap(),
             Variable::String(var)
         );
 
         let n1 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("true")));
         assert_eq!(
-            n1.start_evaluation(&mut state, &subtrees).unwrap(),
+            n1.start_evaluation(&mut state).unwrap(),
             Variable::Bool(true)
         );
 
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
         assert_eq!(
-            n1.start_evaluation(&mut state, &subtrees).unwrap(),
+            n1.start_evaluation(&mut state).unwrap(),
             Variable::Float(2.3)
         );
 
         let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
-        assert_eq!(
-            n2.start_evaluation(&mut state, &subtrees).unwrap(),
-            Variable::Int(123)
-        );
+        assert_eq!(n2.start_evaluation(&mut state).unwrap(), Variable::Int(123));
 
         let n3 = Node::new_keyword(Keyword::Add)
             .append(n1)
             .append(n2.clone());
         assert_eq!(
-            n3.start_evaluation(&mut state, &subtrees).unwrap(),
+            n3.start_evaluation(&mut state).unwrap(),
             Variable::Float(125.3)
         );
 
         let n4 = Node::new_keyword(Keyword::Add)
             .append(n2.clone())
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"))));
-        assert_eq!(
-            n4.start_evaluation(&mut state, &subtrees).unwrap(),
-            Variable::Int(323)
-        );
+        assert_eq!(n4.start_evaluation(&mut state).unwrap(), Variable::Int(323));
 
         let n5 = Node::new_keyword(Keyword::Sub)
             .append(n2)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("23"))));
-        assert_eq!(
-            n5.start_evaluation(&mut state, &subtrees).unwrap(),
-            Variable::Int(100)
-        );
+        assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(100));
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(
-            n5.start_evaluation(&mut state, &subtrees).unwrap(),
-            Variable::Int(10)
-        );
+        assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(10));
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
         assert_eq!(
-            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            n5.start_evaluation(&mut state).unwrap(),
             Variable::Float(8.)
         );
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(
-            n5.start_evaluation(&mut state, &subtrees).unwrap(),
-            Variable::Int(-10)
-        );
+        assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(-10));
 
         let n5 = Node::new_keyword(Keyword::Div)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
         assert_eq!(
-            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            n5.start_evaluation(&mut state).unwrap(),
             Variable::Float(-8.)
         );
 
@@ -516,23 +549,24 @@ mod tests {
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
         assert_eq!(
-            n5.start_evaluation(&mut state, &subtrees).unwrap(),
+            n5.start_evaluation(&mut state).unwrap(),
             Variable::Float(-50.)
         );
 
         let n5 = Node::new_keyword(Keyword::Mult)
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
             .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
-        assert_eq!(
-            n5.start_evaluation(&mut state, &subtrees).unwrap(),
-            Variable::Int(-40)
-        );
+        assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(-40));
     }
 
     #[test]
     fn test_eval_complex() {
-        let mut state = HashMap::default();
-        let subtrees = HashMap::new();
+        let mut state = SharedState {
+            variables: HashMap::new(),
+            subtress: HashMap::new(),
+            mounted: HashMap::new(),
+            eval_metadata: EvalMetadata::default(),
+        };
 
         let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
 
@@ -542,15 +576,19 @@ mod tests {
             .append(n3)
             .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
         assert_eq!(
-            n4.start_evaluation(&mut state, &subtrees).unwrap(),
+            n4.start_evaluation(&mut state).unwrap(),
             Variable::Float(313.25)
         );
     }
 
     #[test]
     fn test_parse_eval() {
-        let mut state = HashMap::default();
-        let subtrees = HashMap::new();
+        let mut state = SharedState {
+            variables: HashMap::new(),
+            subtress: HashMap::new(),
+            mounted: HashMap::new(),
+            eval_metadata: EvalMetadata::default(),
+        };
 
         let mut lexer = Lexer::new("VEC(1,BOOL(true),3,FLOAT(4.0))");
         let tokens = lexer.make_tokens();
@@ -558,7 +596,7 @@ mod tests {
         let got = parser.parse().unwrap();
         println!("{:?}", got);
         assert_eq!(
-            got.start_evaluation(&mut state, &subtrees).unwrap(),
+            got.start_evaluation(&mut state).unwrap(),
             Variable::Vector(vec![
                 Variable::String(String::from("1")),
                 Variable::Bool(true),
@@ -568,26 +606,26 @@ mod tests {
         )
     }
 
-    fn fire_for_test(
-        def: Definition,
-        state: &mut HashMap<String, Variable>,
-        subtrees: &HashMap<String, Vec<Node>>,
-    ) -> Result<()> {
+    fn fire_for_test(def: Definition, state: &mut SharedState) -> Result<()> {
         for step in def {
             let root = Parser::new(Lexer::new(&step).make_tokens())
                 .parse()
                 .unwrap();
-            root.start_evaluation(state, subtrees)?;
+            root.start_evaluation(state)?;
         }
         Ok(())
     }
     /// Runs single test scenario.
     fn test(def: Definition, var_name: String, value: Variable) {
-        let mut state = HashMap::default();
-        let subtrees = HashMap::new();
+        let mut state = SharedState {
+            variables: HashMap::new(),
+            subtress: HashMap::new(),
+            mounted: HashMap::new(),
+            eval_metadata: EvalMetadata::default(),
+        };
 
-        fire_for_test(def, &mut state, &subtrees).unwrap();
-        assert_eq!(*state.get(&var_name).unwrap(), value);
+        fire_for_test(def, &mut state).unwrap();
+        assert_eq!(*state.variables.get(&var_name).unwrap(), value);
     }
 
     #[test]
@@ -624,7 +662,6 @@ mod tests {
         }"#;
 
         let mut map: HashMap<String, Variable> = HashMap::new();
-        let subtrees = HashMap::new();
 
         map.insert(
             String::from("kid"),
@@ -635,25 +672,26 @@ mod tests {
         map.insert(String::from("n"), Variable::String(String::from("nvalue")));
         map.insert(String::from("e"), Variable::String(String::from("evalue")));
 
-        let mut state = HashMap::default();
+        let mut state = SharedState::default();
+
         let def = Definition::new(vec![
             format!("DEFINE(var, OBJECT('{}'))", map_str),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
             String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
             String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
         ]);
-        fire_for_test(def, &mut state, &subtrees).unwrap();
-        assert_eq!(*state.get("var").unwrap(), Variable::Object(map));
+        fire_for_test(def, &mut state).unwrap();
+        assert_eq!(*state.variables.get("var").unwrap(), Variable::Object(map));
         assert_eq!(
-            *state.get("var2").unwrap(),
+            *state.variables.get("var2").unwrap(),
             Variable::String(String::from("RSA"))
         );
         assert_eq!(
-            *state.get("var3").unwrap(),
+            *state.variables.get("var3").unwrap(),
             Variable::String(String::from("sig"))
         );
         assert_eq!(
-            *state.get("var4").unwrap(),
+            *state.variables.get("var4").unwrap(),
             Variable::String(String::from("nvalue"))
         );
     }
@@ -670,7 +708,8 @@ mod tests {
             }
         }"#;
 
-        let subtrees = HashMap::new();
+        let mut state = SharedState::default();
+
         let mut embedded: HashMap<String, Variable> = HashMap::new();
         embedded.insert(String::from("use"), Variable::String(String::from("sig")));
         embedded.insert(String::from("n"), Variable::String(String::from("n-value")));
@@ -682,14 +721,14 @@ mod tests {
         );
         let obj = Variable::Object(embedded);
         map.insert(String::from("kty"), obj.clone());
-        let mut state = HashMap::default();
+
         let def = Definition::new(vec![
             format!("DEFINE(var, object('{}'))", map_str),
             String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
         ]);
-        fire_for_test(def, &mut state, &subtrees).unwrap();
-        assert_eq!(*state.get("var").unwrap(), Variable::Object(map));
-        assert_eq!(*state.get("var2").unwrap(), obj);
+        fire_for_test(def, &mut state).unwrap();
+        assert_eq!(*state.variables.get("var").unwrap(), Variable::Object(map));
+        assert_eq!(*state.variables.get("var2").unwrap(), obj);
     }
 
     #[test]
@@ -706,17 +745,16 @@ mod tests {
         // Parse the string of data into serde_json::Value.
         let v: Value = serde_json::from_str(data).unwrap();
 
-        let mut state = HashMap::default();
-        let subtrees = HashMap::new();
+        let mut state = SharedState::default();
 
         let def = Definition::new(vec![
             format!("DEFINE(var, JSON('{}'))", data),
             "DEFINE(var2, EXTRACT(GET(var), name))".to_string(),
         ]);
-        fire_for_test(def, &mut state, &subtrees).unwrap();
-        assert_eq!(*state.get("var").unwrap(), Variable::Json(v));
+        fire_for_test(def, &mut state).unwrap();
+        assert_eq!(*state.variables.get("var").unwrap(), Variable::Json(v));
         assert_eq!(
-            *state.get("var2").unwrap(),
+            *state.variables.get("var2").unwrap(),
             Variable::String(String::from("John Doe"))
         );
     }

@@ -1,7 +1,7 @@
 use rocket::http::{ContentType, Status};
 use rocket::response::{self, Responder, Response};
 use rocket::Request;
-use serde::Serialize;
+use serde::{de, ser, Serialize};
 use std::error::Error as StdError;
 use std::fmt::Result as FmtResult;
 use std::fmt::{Display, Formatter};
@@ -38,8 +38,11 @@ impl EvalError {
         }
     }
 
-    pub fn new_internal(operation: String, msg: String) -> Self {
-        Self::Internal { operation, msg }
+    pub fn new_internal<S: ToString>(operation: S, msg: S) -> Self {
+        Self::Internal {
+            operation: operation.to_string(),
+            msg: msg.to_string(),
+        }
     }
 }
 
@@ -83,6 +86,26 @@ pub enum Error {
     },
 }
 
+impl From<anyhow::Error> for Error {
+    fn from(e: anyhow::Error) -> Self {
+        Self::Internal {
+            place: String::from("from anyhow"),
+            msg: e.to_string(),
+            err: e.source().map_or(String::new(), |s| s.to_string()),
+        }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Self::Internal {
+            place: String::from("from anyhow"),
+            msg: e.to_string(),
+            err: e.source().map_or(String::new(), |s| s.to_string()),
+        }
+    }
+}
+
 #[rocket::async_trait]
 impl<'r> Responder<'r, 'static> for Error {
     fn respond_to(self, req: &'r Request<'_>) -> response::Result<'static> {
@@ -110,7 +133,7 @@ impl Error {
         Self::new_eval(EvalError::new_invalid_type(operation, t, wanted))
     }
 
-    pub fn new_eval_internal(operation: String, msg: String) -> Self {
+    pub fn new_eval_internal<S: ToString>(operation: S, msg: S) -> Self {
         Self::new_eval(EvalError::new_internal(operation, msg))
     }
 
@@ -125,6 +148,26 @@ impl Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{:?}", *self)
+    }
+}
+
+impl ser::Error for Error {
+    fn custom<T: Display>(msg: T) -> Self {
+        Self::Internal {
+            place: String::from("from serde"),
+            msg: msg.to_string(),
+            err: msg.to_string(),
+        }
+    }
+}
+
+impl de::Error for Error {
+    fn custom<T: Display>(msg: T) -> Self {
+        Self::Internal {
+            place: String::from("from serde"),
+            msg: msg.to_string(),
+            err: msg.to_string(),
+        }
     }
 }
 

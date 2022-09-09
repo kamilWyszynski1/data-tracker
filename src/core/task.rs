@@ -9,6 +9,7 @@ use crate::models::task::TaskModel;
 use crate::server::task::{TaskCreateRequest, TaskKindRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::convert::TryFrom;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -70,21 +71,25 @@ pub enum InputData {
 }
 
 impl InputData {
-    pub fn from_str(value: &str) -> Result<Self> {
-        serde_json::from_str(value).map_err(|e| {
-            Error::new_internal(
-                String::from("InputData::from_str"),
-                String::from("failed to deserialize"),
-                e.to_string(),
-            )
-        })
-    }
-
     pub fn to_str(&self) -> Result<String> {
         serde_json::to_string(self).map_err(|e| {
             Error::new_internal(
                 String::from("InputData::to_str"),
                 String::from("failed to serialize"),
+                e.to_string(),
+            )
+        })
+    }
+}
+
+impl TryFrom<&str> for InputData {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self> {
+        serde_json::from_str(value).map_err(|e| {
+            Error::new_internal(
+                String::from("InputData::from_str"),
+                String::from("failed to deserialize"),
                 e.to_string(),
             )
         })

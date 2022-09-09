@@ -55,7 +55,7 @@ pub async fn consume_topic(
                         };
                         debug!("consume_topic: received message: {:?}, {}", m, payload);
 
-                        match InputData::from_str(payload) {
+                        match InputData::try_from(payload) {
                             Ok(id) => sender
                                 .send(id)
                                 .await

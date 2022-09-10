@@ -197,8 +197,7 @@ impl Persistance for SqliteClient {
 mod tests {
     use crate::core::task::{TaskInput, TrackingTask};
     use crate::core::types::*;
-    use crate::lang::engine::Definition;
-    use crate::lang::process::Process;
+    use crate::lang::process::{Definition, Process};
     use crate::persistance::interface::Persistance;
     use crate::server::task::TaskKindRequest;
     use diesel::{Connection, SqliteConnection};

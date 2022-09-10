@@ -7,8 +7,7 @@ use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::{InputData, TaskInput, TrackingTask};
 use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::core::types::{Direction, Hook};
-use datatracker_rust::lang::engine::Definition;
-use datatracker_rust::lang::process::Process;
+use datatracker_rust::lang::process::{Definition, Process};
 use datatracker_rust::persistance::in_memory::InMemoryPersistance;
 use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::server::task::TaskKindRequest;
@@ -79,7 +78,7 @@ async fn test_psql_connector() {
 
     let process = Process::new(
         "main process",
-        vec![Definition::new(vec![String::from("DEFINE(OUT, GET(IN))")])],
+        vec![Definition::new(vec!["DEFINE(OUT, GET(IN))"])],
         None,
     );
 

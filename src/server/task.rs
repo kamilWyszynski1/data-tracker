@@ -99,11 +99,9 @@ pub async fn create(
 mod tests {
     use crate::core::task::TaskInput;
     use crate::core::types::Hook;
-    use crate::lang::process::Process;
+    use crate::lang::process::{Definition, Process};
     use crate::server::task::TaskKindRequest;
-    use crate::{
-        core::types::Direction, lang::engine::Definition, server::task::TaskCreateRequest,
-    };
+    use crate::{core::types::Direction, server::task::TaskCreateRequest};
 
     #[test]
     fn proper_test_deserializing() {
@@ -147,13 +145,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    process: Process::new("test process", vec![Definition {
-                        steps: vec![
-                            String::from("MOCK DEFINITION 1"),
-                            String::from("MOCK DEFINITION 2"),
-                        ],
-                        subtrees: None,
-                    }], None),
+                    process: Process::new("test process", vec![Definition {steps:vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),],subtrees:None, name: None }], None),
                     input: Some(TaskInput::None),
                     kind_request: TaskKindRequest::Ticker{ interval_secs: 30 },
                 },
@@ -191,13 +183,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    process: Process::new("test process", vec![Definition {
-                        steps: vec![
-                            String::from("MOCK DEFINITION 1"),
-                            String::from("MOCK DEFINITION 2"),
-                        ],
-                        subtrees: None,
-                    }], None),
+                    process: Process::new("test process", vec![Definition {steps:vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),],subtrees:None, name: None }], None),
                     input: Some(TaskInput::None),
                     kind_request:             TaskKindRequest::Clicked,
                 },
@@ -235,13 +221,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    process: Process::new("test process", vec![Definition {
-                        steps: vec![
-                            String::from("MOCK DEFINITION 1"),
-                            String::from("MOCK DEFINITION 2"),
-                        ],
-                        subtrees: None,
-                    }], None),
+                    process: Process::new("test process", vec![Definition {steps:vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),],subtrees:None, name: None }], None),
                     input: Some(TaskInput::PSQL {
                         host: String::from("host"),
                         port: 5432,
@@ -285,13 +265,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    process: Process::new("test process", vec![Definition {
-                        steps: vec![
-                            String::from("MOCK DEFINITION 1"),
-                            String::from("MOCK DEFINITION 2"),
-                        ],
-                        subtrees: None,
-                    }], None),
+                    process: Process::new("test process", vec![Definition {steps:vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),],subtrees:None, name: None }], None),
                     input: None,
                     kind_request: TaskKindRequest::Triggered(Hook::PSQL{
                         host: String::from("host"),

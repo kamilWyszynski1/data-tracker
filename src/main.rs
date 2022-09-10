@@ -4,8 +4,7 @@ use datatracker_rust::core::manager::TaskCommand;
 use datatracker_rust::core::task::TrackingTask;
 use datatracker_rust::core::tracker::Tracker;
 use datatracker_rust::core::types::{Direction, Hook};
-use datatracker_rust::lang::engine::Definition;
-use datatracker_rust::lang::process::Process;
+use datatracker_rust::lang::process::{Definition, Process};
 use datatracker_rust::persistance::interface::Db;
 use datatracker_rust::persistance::sqlite::{establish_connection, SqliteClient};
 use datatracker_rust::server::build::rocket;
@@ -52,9 +51,7 @@ async fn main() {
 
     let process = Process::new(
         "main process",
-        vec![Definition::new(vec![String::from(
-            "DEFINE(OUT, EXTRACT(GET(IN), 0))",
-        )])],
+        vec![Definition::new(vec!["DEFINE(OUT, EXTRACT(GET(IN), 0))"])],
         None,
     );
 

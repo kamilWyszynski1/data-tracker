@@ -1,7 +1,45 @@
-use super::engine::Definition;
 use crate::error::types::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// Helper definition that can be run inside main tree.
+/// IN and OUT type of SubTree is always the same.
+pub struct SubTree {
+    pub name: String,
+    pub input_type: Option<String>,
+    pub definition: Definition,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Definition {
+    pub name: Option<String>,
+    pub steps: Vec<String>,
+    pub subtrees: Option<Vec<SubTree>>,
+}
+
+impl Definition {
+    pub fn new<S: Into<String>>(steps: Vec<S>) -> Self {
+        let steps: Vec<String> = steps.into_iter().map(|s| s.into()).collect();
+        for step in &steps {
+            assert_eq!(step.matches('(').count(), step.matches(')').count())
+        }
+        Definition {
+            name: None,
+            steps,
+            subtrees: None,
+        }
+    }
+}
+
+impl IntoIterator for Definition {
+    type Item = String;
+    type IntoIter = <Vec<String> as IntoIterator>::IntoIter; // so that you don't have to write std::vec::IntoIter, which nobody remembers anyway
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.steps.into_iter()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Represents different options for mounting things during process execution.
@@ -61,7 +99,7 @@ impl TryFrom<String> for Process {
 #[cfg(test)]
 mod tests {
     use super::Process;
-    use crate::lang::{engine::Definition, process::MountOption};
+    use crate::lang::process::{Definition, MountOption};
 
     #[test]
     fn test_process_deserialize() {
@@ -79,13 +117,10 @@ mod tests {
         }"#;
         let wanted = Process {
             name: String::from("test process"),
-            definitions: vec![Definition {
-                steps: vec![
-                    String::from("MOCK DEFINITION 1"),
-                    String::from("MOCK DEFINITION 2"),
-                ],
-                subtrees: None,
-            }],
+            definitions: vec![Definition::new(vec![
+                String::from("MOCK DEFINITION 1"),
+                String::from("MOCK DEFINITION 2"),
+            ])],
             mounts: None,
         };
 
@@ -116,13 +151,10 @@ mod tests {
         }"#;
         let wanted = Process {
             name: String::from("test process"),
-            definitions: vec![Definition {
-                steps: vec![
-                    String::from("MOCK DEFINITION 1"),
-                    String::from("MOCK DEFINITION 2"),
-                ],
-                subtrees: None,
-            }],
+            definitions: vec![Definition::new(vec![
+                String::from("MOCK DEFINITION 1"),
+                String::from("MOCK DEFINITION 2"),
+            ])],
             mounts: Some(vec![MountOption {
                 alias: String::from("a"),
                 path: String::from("p"),

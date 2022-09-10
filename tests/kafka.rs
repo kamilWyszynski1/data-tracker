@@ -7,7 +7,7 @@ use datatracker_rust::{
         tracker::Tracker,
         types::{Direction, Hook},
     },
-    lang::{engine::Definition, process::Process},
+    lang::process::{Definition, Process},
     persistance::{in_memory::InMemoryPersistance, interface::Db},
     server::task::TaskKindRequest,
     wrap::TestAPI,
@@ -129,9 +129,7 @@ async fn test_kafka_connector_whole_flow() {
 
     let process = Process::new(
         "main process",
-        vec![Definition::new(vec![String::from(
-            "DEFINE(OUT, EXTRACT(GET(IN), 0))",
-        )])],
+        vec![Definition::new(vec!["DEFINE(OUT, EXTRACT(GET(IN), 0))"])],
         None,
     );
 

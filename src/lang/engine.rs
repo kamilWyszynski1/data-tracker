@@ -13,43 +13,6 @@ use std::{
     io::{BufReader, Read},
     rc::Rc,
 };
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-/// Helper definition that can be run inside main tree.
-/// IN and OUT type of SubTree is always the same.
-pub struct SubTree {
-    pub name: String,
-    pub input_type: Option<String>,
-    pub definition: Definition,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Definition {
-    pub steps: Vec<String>,
-    pub subtrees: Option<Vec<SubTree>>,
-}
-
-impl Definition {
-    pub fn new(steps: Vec<String>) -> Self {
-        for step in &steps {
-            assert_eq!(step.matches('(').count(), step.matches(')').count())
-        }
-        Definition {
-            steps,
-            subtrees: None,
-        }
-    }
-}
-
-impl IntoIterator for Definition {
-    type Item = String;
-    type IntoIter = <Vec<String> as IntoIterator>::IntoIter; // so that you don't have to write std::vec::IntoIter, which nobody remembers anyway
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.steps.into_iter()
-    }
-}
-
 pub struct Engine {
     // common state for every definition.
     variables: HashMap<String, Variable>,

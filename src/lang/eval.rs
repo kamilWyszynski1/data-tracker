@@ -1,4 +1,5 @@
-use super::{engine::Definition, node::Node};
+use super::node::Node;
+use super::process::Definition;
 use crate::error::types::{Error, Result};
 use crate::lang::lexer::{Lexer, Parser};
 use serde::{Deserialize, Serialize};

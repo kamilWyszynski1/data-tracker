@@ -151,7 +151,7 @@ impl Persistance for SqliteClient {
                 )
             })?;
         t.into_iter()
-            .map(|tm| TrackingTask::try_from(tm))
+            .map(TrackingTask::try_from)
             .collect::<PResult<Vec<TrackingTask>>>()
     }
 

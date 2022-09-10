@@ -1,10 +1,7 @@
 use super::engine::Definition;
 use crate::error::types::{Error, Result};
 use serde::{Deserialize, Serialize};
-use std::{
-    convert::{TryFrom, TryInto},
-    ops::Deref,
-};
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Represents different options for mounting things during process execution.

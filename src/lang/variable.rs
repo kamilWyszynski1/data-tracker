@@ -140,8 +140,8 @@ impl From<InputData> for Variable {
     /// Translates InputData enum to Variable enum.
     fn from(input_data: InputData) -> Self {
         match input_data {
-            InputData::String(s) => Variable::String(s.clone()),
-            InputData::Json(j) => Variable::Json(j.clone()),
+            InputData::String(s) => Variable::String(s),
+            InputData::Json(j) => Variable::Json(j),
             InputData::Vector(v) => Variable::Vector(v.into_iter().map(Self::from).collect()),
         }
     }

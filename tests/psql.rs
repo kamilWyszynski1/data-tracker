@@ -109,12 +109,9 @@ async fn test_psql_connector() {
     loop {
         tokio::select! {
             n = receiver.recv() => {
-                match n {
-                    Some(n) => {
-                        assert_eq!(n[0][0], String::from(r#"String("test")"#));
-                        return;
-                    },
-                    None =>()
+                if let Some(n) =n {
+                    assert_eq!(n[0][0], String::from(r#"String("test")"#));
+                    return;
                 }
             }
         }
@@ -145,13 +142,10 @@ async fn test_changes_monitor() {
     loop {
         tokio::select! {
             n = receiver.recv() => {
-                match n {
-                    Some(n) => {
-                        println!("{:?}", n);
-                        assert_eq!(n, InputData::String(String::from(r#"{"id":1,"value":"test"}"#)));
-                        break
-                    },
-                    None =>()
+                if let Some(n) = n {
+                    println!("{:?}", n);
+                    assert_eq!(n, InputData::String(String::from(r#"{"id":1,"value":"test"}"#)));
+                    break
                 }
             }
         }
@@ -240,13 +234,10 @@ async fn test_changes_monitor_whole_flow() {
     });
 
     loop {
-        match test_receiver.recv().await {
-            Some(values) => {
-                println!("{:?}", values);
-                assert_eq!(values[0][0], String::from("Int(1)"));
-                return;
-            }
-            None => (),
+        if let Some(values) = test_receiver.recv().await {
+            println!("{:?}", values);
+            assert_eq!(values[0][0], String::from("Int(1)"));
+            return;
         }
     }
 }
@@ -277,7 +268,7 @@ async fn prepare_psql_db(client: &Client) {
     client
         .batch_execute(
             r#"
-            drop table test_table;
+            drop table if exists test_table;
 
             create table test_table
             (

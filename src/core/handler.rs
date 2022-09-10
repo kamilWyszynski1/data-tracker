@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::result::Result as StdResult;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
 use uuid::Uuid;
@@ -242,13 +242,12 @@ where
                 }
             }
         }
-        match background_job {
-            Some(join) => {
-                info!("waiting for task background jobs");
-                join.await.expect("failed to wait for task background job")
-            }
-            None => (),
+
+        if let Some(join) = background_job {
+            info!("waiting for task background jobs");
+            join.await.expect("failed to wait for task background job")
         }
+
         info!("TaskHandler for {} task closed", self.task.id);
     }
 

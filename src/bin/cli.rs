@@ -80,10 +80,9 @@ impl App {
         if self.picked.is_some() {
             return;
         }
-        match self.state.selected() {
-            Some(i) => self.picked = Some(i),
-            None => (),
-        };
+        if let Some(i) = self.state.selected() {
+            self.picked = Some(i)
+        }
     }
 }
 

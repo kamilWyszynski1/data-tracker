@@ -328,7 +328,6 @@ mod tests {
             variable::Variable,
         },
     };
-    use rocket::data::N;
     use serde_json::Value;
     use std::collections::HashMap;
 
@@ -336,10 +335,10 @@ mod tests {
     fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Variable> {
         let mut variables = HashMap::new();
 
-        in_var.map(|variable| {
+        if let Some(variable) = in_var {
             variables.insert(String::from("IN"), variable.clone());
             variables.insert(String::from("OUT"), variable);
-        });
+        }
 
         let mut shared_state = SharedState {
             variables,

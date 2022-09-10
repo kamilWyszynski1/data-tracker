@@ -71,7 +71,7 @@ pub enum InputData {
 }
 
 impl InputData {
-    pub fn to_str(&self) -> Result<String> {
+    pub fn try_to_string(&self) -> Result<String> {
         serde_json::to_string(self).map_err(|e| {
             Error::new_internal(
                 String::from("InputData::to_str"),
@@ -353,7 +353,7 @@ impl TrackingTask {
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
-            process: Process::from(tcr.process),
+            process: tcr.process,
             data_fn: tcr
                 .input
                 .as_ref()

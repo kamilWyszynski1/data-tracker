@@ -84,6 +84,11 @@ pub enum Error {
         msg: String,
         err: String,
     },
+    Validation {
+        entity: String,
+        msg: String,
+        field: String,
+    },
 }
 
 impl From<anyhow::Error> for Error {
@@ -129,8 +134,12 @@ impl Error {
         Self::Persistance(err)
     }
 
-    pub fn new_eval_invalid_type(operation: String, t: String, wanted: String) -> Self {
-        Self::new_eval(EvalError::new_invalid_type(operation, t, wanted))
+    pub fn new_eval_invalid_type<S: ToString>(operation: S, t: S, wanted: S) -> Self {
+        Self::new_eval(EvalError::new_invalid_type(
+            operation.to_string(),
+            t.to_string(),
+            wanted.to_string(),
+        ))
     }
 
     pub fn new_eval_internal<S: ToString>(operation: S, msg: S) -> Self {
@@ -140,8 +149,17 @@ impl Error {
     pub fn new_persistance_internal(msg: String, err: String) -> Self {
         Self::new_persistance(PersistanceError::new_internal(msg, err))
     }
+
     pub fn new_persistance_parsing(msg: String, err: String, field: String) -> Self {
         Self::new_persistance(PersistanceError::new_parsing(msg, err, field))
+    }
+
+    pub fn new_validation<S: ToString>(entity: S, msg: S, field: S) -> Self {
+        Self::Validation {
+            entity: entity.to_string(),
+            msg: msg.to_string(),
+            field: field.to_string(),
+        }
     }
 }
 

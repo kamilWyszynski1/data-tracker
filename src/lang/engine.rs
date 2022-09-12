@@ -5,7 +5,6 @@ use super::{
     variable::Variable,
 };
 use crate::error::types::Result;
-use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -13,6 +12,7 @@ use std::{
     io::{BufReader, Read},
     rc::Rc,
 };
+
 pub struct Engine {
     // common state for every definition.
     variables: HashMap<String, Variable>,
@@ -49,16 +49,16 @@ impl Engine {
         variables.insert(String::from("IN"), in_var.clone());
         variables.insert(String::from("OUT"), in_var);
 
-        let mut efs = vec![];
+        let mut eval_forests = vec![];
         // parse Process into Vec of EvalForest.
 
         for def in process.definitions {
-            efs.push(EvalForest::from(def));
+            eval_forests.push(EvalForest::from(def));
         }
 
         Ok(Self {
             variables,
-            eval_forests: efs,
+            eval_forests,
             mounted,
         })
     }
@@ -80,6 +80,14 @@ impl Engine {
             for root in ef.clone() {
                 shared_state.subtress = ef.subtrees.clone();
                 root.start_evaluation(&mut shared_state)?;
+            }
+
+            // for now we only support 1 level of nesting.
+            for (subtree_name, roots) in &ef.implicit_subtrees {
+                debug!("implicitly running {subtree_name} subtree");
+                for root in roots {
+                    root.start_evaluation(&mut shared_state)?;
+                }
             }
         }
 
@@ -125,10 +133,8 @@ mod tests {
         ))?;
         let reader = BufReader::new(file);
 
-        // Read the JSON contents of the file as an instance of `User`.
         let u = serde_json::from_reader(reader).context("could not deserialize to process")?;
 
-        // Return the `User`.
         Ok(u)
     }
 
@@ -150,5 +156,47 @@ mod tests {
             engine.get("OUT").unwrap(),
             &Variable::String(String::from("test data here"))
         );
+    }
+
+    #[test]
+    fn test_process2() {
+        env_logger::init();
+
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("src")
+            .join("lang")
+            .join("test_data")
+            .join("process2.json");
+
+        let process = process_file_to_struct(path).unwrap();
+        let mut engine = Engine::new(Variable::None, process).unwrap();
+        engine.fire().unwrap();
+
+        assert_eq!(
+            engine.get("OUT").unwrap(),
+            &Variable::Vector(vec![
+                Variable::String("test data here".into()),
+                Variable::String("test file content2".into())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_process3() {
+        env_logger::init();
+
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("src")
+            .join("lang")
+            .join("test_data")
+            .join("process3.json");
+
+        let process = process_file_to_struct(path).unwrap();
+        let mut engine = Engine::new(Variable::String("".into()), process).unwrap();
+        engine.fire().unwrap();
+
+        assert_eq!(engine.get("OUT").unwrap(), &Variable::Int(13));
     }
 }

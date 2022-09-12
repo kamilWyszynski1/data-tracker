@@ -7,15 +7,32 @@ use std::convert::TryFrom;
 /// IN and OUT type of SubTree is always the same.
 pub struct SubTree {
     pub name: String,
-    pub input_type: Option<String>,
     pub definition: Definition,
+}
+
+impl SubTree {
+    /// Validates if Subtree fields are valid.
+    fn validate(&self) -> Result<()> {
+        self.definition.validate()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Definition {
+    // Name of a definition.
     pub name: Option<String>,
+
+    // Steps that are being performed in scope of one Definition.
     pub steps: Vec<String>,
+
+    // Collection of SubTrees that can be run from steps.
+    // Optionally, Subtrees can be marked to run implicitly.
     pub subtrees: Option<Vec<SubTree>>,
+
+    // Set of subtrees that will be run implicitly - without need of using 'RunSubtree' command.
+    // Subtrees will be run in a order of initialization.
+    // Implicit subtress will be deleted from 'SharedState' in order to prevent multiple runs.
+    pub implicit_subtrees: Option<Vec<String>>,
 }
 
 impl Definition {
@@ -28,7 +45,34 @@ impl Definition {
             name: None,
             steps,
             subtrees: None,
+            implicit_subtrees: None,
         }
+    }
+
+    fn name(&self) -> String {
+        match &self.name {
+            Some(name) => format!("Definition-{name}"),
+            None => "Definition".into(),
+        }
+    }
+
+    /// Validates if Definition fields are valid.
+    fn validate(&self) -> Result<()> {
+        // steps cannot be empty.
+        if self.steps.is_empty() {
+            return Err(Error::new_validation(
+                self.name().as_str(),
+                "Empty steps",
+                "steps",
+            ));
+        }
+        if let Some(subtrees) = &self.subtrees {
+            // validate nested subtrees.
+            for subtree in subtrees {
+                subtree.validate()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -85,6 +129,25 @@ impl Process {
         serde_json::to_string(self)
             .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
     }
+
+    /// Validates Process struct.
+    fn validate(&self) -> Result<()> {
+        // definitions cannot be empty.
+        if self.definitions.is_empty() {
+            return Err(Error::new_validation(
+                "Process",
+                "Definitions cannot be empty",
+                "definitions",
+            ));
+        }
+
+        // validate definition one by one.
+        for definition in &self.definitions {
+            definition.validate()?;
+        }
+
+        Ok(())
+    }
 }
 
 impl TryFrom<String> for Process {
@@ -99,7 +162,10 @@ impl TryFrom<String> for Process {
 #[cfg(test)]
 mod tests {
     use super::Process;
-    use crate::lang::process::{Definition, MountOption};
+    use crate::{
+        error::types::Error,
+        lang::process::{Definition, MountOption},
+    };
 
     #[test]
     fn test_process_deserialize() {
@@ -164,5 +230,29 @@ mod tests {
 
         let process: Process = serde_json::from_str(content).expect("failed to deserialize");
         assert_eq!(wanted, process);
+    }
+
+    #[test]
+    fn test_validate_process() {
+        let valid_process = Process {
+            name: String::from("test process"),
+            definitions: vec![Definition::new(vec!["def1"])],
+            mounts: None,
+        };
+        assert_true!(valid_process.validate().is_ok());
+
+        let invalid_process_empty_definitions = Process {
+            name: String::from("test process"),
+            definitions: vec![],
+            mounts: None,
+        };
+        assert_eq!(
+            invalid_process_empty_definitions.validate(),
+            Err(Error::new_validation(
+                "Process",
+                "Definitions cannot be empty",
+                "definitions",
+            ))
+        )
     }
 }

@@ -11,10 +11,13 @@ pub enum Keyword {
     Define, // defines new variable: DEFINE(var, 1).
     Get,    // returns defined variable: VAR(var).
     Extract,
+    // appends data to given variable.
+    // supported variables to be appended: String, Vec, Object.
+    Append,
 
     Json,   // returns Variable::Json: JSON("{}").
     Vec,    // returns Variable::Vec: VEC(1,2,3,4).
-    Object, // return Variable::Object: Object(a, 1, b, INT(3), c, BOOL(true))
+    Object, // returns Variable::Object: Object(a, 1, b, INT(3), c, BOOL(true))
     Bool,
     Int,
     Float,
@@ -32,7 +35,8 @@ pub enum Keyword {
     // Takes no arguments, breaks from RunSubtree.
     // If RunSubtree are nested it'll break to root point.
     Break,
-    If, // conditional run: IF(BOOL(true), RunSubtree(subtree_name)).
+    // conditional run: IF(BOOL(true), RunSubtree(subtree_name)).
+    If,
     // Returns true if two Variable are equal.
     // Can be chained like that: Eq(Eq(INT(1), INT(1)), Eq(FLOAT(2.5), FLOAT(2.5))).
     Eq,
@@ -54,6 +58,7 @@ impl Keyword {
             "json" => Self::Json,
             "vec" => Self::Vec,
             "extract" => Self::Extract,
+            "append" => Self::Append,
             "bool" => Self::Bool,
             "int" => Self::Int,
             "float" => Self::Float,
@@ -105,7 +110,8 @@ impl Keyword {
             | Keyword::Neq
             | Keyword::Map
             | Keyword::MapInPlace
-            | Keyword::Filter => 2,
+            | Keyword::Filter
+            | Keyword::Append => 2,
             Keyword::Vec => {
                 if nodes.is_empty() {
                     return Err(Error::new_eval_internal(
@@ -328,6 +334,7 @@ mod tests {
             variable::Variable,
         },
     };
+    use rocket::data::N;
     use serde_json::Value;
     use std::collections::HashMap;
 
@@ -883,10 +890,11 @@ mod tests {
             ],
             subtrees: Some(vec![SubTree {
                 name: String::from("testsubtree"),
-                input_type: None,
+
                 definition: Definition::new(vec!["DEFINE(OUT, ADD(GET(IN), INT(10)))"]),
             }]),
             name: None,
+            implicit_subtrees: None,
         };
         let eval_forest = EvalForest::from(definition);
         let out = evaluate(None, &eval_forest).expect("could not evaluate");
@@ -897,20 +905,20 @@ mod tests {
             subtrees: Some(vec![
                 SubTree {
                     name: String::from("testsubtree"),
-                    input_type: None,
                     definition: Definition::new(vec!["RunSubtree(testsubtree2)"]),
                 },
                 SubTree {
                     name: String::from("testsubtree2"),
-                    input_type: None,
                     definition: Definition {
                         steps: vec![String::from("DEFINE(OUT, INT(400))")],
                         subtrees: None,
                         name: None,
+                        implicit_subtrees: None,
                     },
                 },
             ]),
             name: None,
+            implicit_subtrees: None,
         };
         let eval_forest = EvalForest::from(definition);
         let out = evaluate(None, &eval_forest).expect("could not evaluate");
@@ -926,7 +934,7 @@ mod tests {
     //         )],
     //         subtrees: Some(vec![SubTree {
     //             name: String::from("testsubtree"),
-    //             input_type: None,
+    //
     //             definition: Definition {
     //                 steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
     //                 subtrees: None,
@@ -966,7 +974,7 @@ mod tests {
     //         subtrees: Some(vec![
     //             SubTree {
     //                 name: String::from("testsubtree"),
-    //                 input_type: None,
+    //
     //                 definition: Definition {
     //                     steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
     //                     subtrees: None,
@@ -974,7 +982,7 @@ mod tests {
     //             },
     //             SubTree {
     //                 name: String::from("testsubtree2"),
-    //                 input_type: None,
+    //
     //                 definition: Definition {
     //                     steps: vec![String::from("DEFINE(OUT, MULT(GET(IN), INT(10)))")],
     //                     subtrees: None,
@@ -1006,7 +1014,7 @@ mod tests {
     //         )],
     //         subtrees: Some(vec![SubTree {
     //             name: String::from("testsubtree"),
-    //             input_type: None,
+    //
     //             definition: Definition {
     //                 steps: vec![String::from("DEFINE(OUT, FLOAT(1.0))")],
     //                 subtrees: None,
@@ -1059,14 +1067,15 @@ mod tests {
             steps: vec![String::from("IF(INT(1), RunSubtree(testsubtree))")],
             subtrees: Some(vec![SubTree {
                 name: String::from("testsubtree"),
-                input_type: None,
                 definition: Definition {
                     steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
                     subtrees: None,
                     name: None,
+                    implicit_subtrees: None,
                 },
             }]),
             name: None,
+            implicit_subtrees: None,
         };
 
         let eval_forest = EvalForest::from(definition);
@@ -1077,14 +1086,16 @@ mod tests {
             steps: vec![String::from("IF(INT(2), RunSubtree(testsubtree))")],
             subtrees: Some(vec![SubTree {
                 name: String::from("testsubtree"),
-                input_type: None,
+
                 definition: Definition {
                     steps: vec![String::from("DEFINE(OUT, ADD(GET(IN), INT(10)))")],
                     subtrees: None,
                     name: None,
+                    implicit_subtrees: None,
                 },
             }]),
             name: None,
+            implicit_subtrees: None,
         };
 
         let eval_forest = EvalForest::from(definition);
@@ -1096,24 +1107,26 @@ mod tests {
             subtrees: Some(vec![
                 SubTree {
                     name: String::from("testsubtree"),
-                    input_type: None,
                     definition: Definition {
                         steps: vec![String::from("IF(GET(IN), RunSubtree(testsubtree2))")],
                         subtrees: None,
                         name: None,
+                        implicit_subtrees: None,
                     },
                 },
                 SubTree {
                     name: String::from("testsubtree2"),
-                    input_type: None,
+
                     definition: Definition {
                         steps: vec![String::from("DEFINE(OUT, INT(155))")],
                         subtrees: None,
                         name: None,
+                        implicit_subtrees: None,
                     },
                 },
             ]),
             name: None,
+            implicit_subtrees: None,
         };
 
         let eval_forest = EvalForest::from(definition);
@@ -1130,6 +1143,7 @@ mod tests {
             steps: vec![String::from("IF(INT(1), DEFINE(var, INT(100)))")],
             subtrees: None,
             name: None,
+            implicit_subtrees: None,
         };
 
         let process = Process::new("test", vec![definition], None);
@@ -1142,6 +1156,7 @@ mod tests {
             steps: vec![String::from("IF(INT(123), DEFINE(var, INT(100)))")],
             subtrees: None,
             name: None,
+            implicit_subtrees: None,
         };
 
         let process = Process::new("test", vec![definition], None);
@@ -1154,6 +1169,7 @@ mod tests {
             steps: vec![String::from("IF(BOOL(true), DEFINE(var, INT(100)))")],
             subtrees: None,
             name: None,
+            implicit_subtrees: None,
         };
 
         let process = Process::new("test", vec![definition], None);
@@ -1180,7 +1196,6 @@ mod tests {
             subtrees: Some(vec![
                 SubTree {
                     name: String::from("testsubtree"),
-                    input_type: None,
                     definition: Definition {
                         steps: vec![
                             String::from("BREAK"),
@@ -1188,19 +1203,21 @@ mod tests {
                         ],
                         subtrees: None,
                         name: None,
+                        implicit_subtrees: None,
                     },
                 },
                 SubTree {
                     name: String::from("testsubtree2"),
-                    input_type: None,
                     definition: Definition {
                         steps: vec![String::from("DEFINE(OUT, INT(155))")],
                         subtrees: None,
                         name: None,
+                        implicit_subtrees: None,
                     },
                 },
             ]),
             name: None,
+            implicit_subtrees: None,
         };
 
         let eval_forest = EvalForest::from(definition);
@@ -1211,7 +1228,6 @@ mod tests {
             steps: vec![String::from("RunSubtree(testsubtree)")],
             subtrees: Some(vec![SubTree {
                 name: String::from("testsubtree"),
-                input_type: None,
                 definition: Definition {
                     steps: vec![
                         String::from("DEFINE(IN, SUB(GET(IN), INT(1)))"),
@@ -1221,9 +1237,11 @@ mod tests {
                     ],
                     subtrees: None,
                     name: None,
+                    implicit_subtrees: None,
                 },
             }]),
             name: None,
+            implicit_subtrees: None,
         };
 
         let eval_forest = EvalForest::from(definition);
@@ -1234,7 +1252,6 @@ mod tests {
             steps: vec![String::from("RunSubtree(testsubtree)")],
             subtrees: Some(vec![SubTree {
                 name: String::from("testsubtree"),
-                input_type: None,
                 definition: Definition {
                     steps: vec![
                         String::from("DEFINE(IN, SUB(GET(IN), INT(1)))"),
@@ -1242,9 +1259,11 @@ mod tests {
                     ],
                     subtrees: None,
                     name: None,
+                    implicit_subtrees: None,
                 },
             }]),
             name: None,
+            implicit_subtrees: None,
         };
 
         let eval_forest = EvalForest::from(definition);

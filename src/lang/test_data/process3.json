@@ -1,0 +1,45 @@
+{
+    "name": "process3",
+    "definitions": [
+        {
+            "name": "1",
+            "steps": [
+                "DEFINE(OUT, INT(10))"
+            ],
+            "implicit_subtrees": [
+                "13",
+                "11",
+                "12"
+            ],
+            "subtrees": [
+                {
+                    "name": "13",
+                    "definition": {
+                        "name": "131",
+                        "steps": [
+                            "DEFINE(OUT, ADD(GET(OUT), INT(1))"
+                        ]
+                    }
+                },
+                {
+                    "name": "11",
+                    "definition": {
+                        "name": "111",
+                        "steps": [
+                            "DEFINE(OUT, ADD(GET(OUT), INT(1))"
+                        ]
+                    }
+                },
+                {
+                    "name": "12",
+                    "definition": {
+                        "name": "121",
+                        "steps": [
+                            "DEFINE(OUT, ADD(GET(OUT), INT(1))"
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -10,6 +10,9 @@ use std::convert::TryFrom;
 pub(super) struct EvalForest {
     pub roots: Vec<Node>,
     pub subtrees: HashMap<String, Vec<Node>>,
+
+    // subtress that will be run implicitly, cannot be called from Definition's steps.
+    pub implicit_subtrees: HashMap<String, Vec<Node>>,
 }
 
 impl EvalForest {
@@ -30,6 +33,8 @@ impl From<Definition> for EvalForest {
         }
 
         let mut subtrees = HashMap::default();
+        let mut implicit_subtrees = HashMap::new();
+
         // parse subtrees in Definition.
         for subtree in def.subtrees.as_ref().unwrap_or(&vec![]) {
             let mut roots = vec![];
@@ -38,10 +43,25 @@ impl From<Definition> for EvalForest {
             for step in &subtree.definition.steps {
                 roots.push(Parser::new(Lexer::new(step).make_tokens()).parse().unwrap());
             }
-            subtrees.insert(subtree.name.clone(), roots);
+
+            // check if subtree is marked as implicit - if so, do not parse it as it'll be run separatelly.
+            if def
+                .implicit_subtrees
+                .as_ref()
+                .unwrap_or(&vec![])
+                .contains(&subtree.name)
+            {
+                implicit_subtrees.insert(subtree.name.clone(), roots);
+            } else {
+                subtrees.insert(subtree.name.clone(), roots);
+            }
         }
 
-        EvalForest { roots, subtrees }
+        EvalForest {
+            roots,
+            subtrees,
+            implicit_subtrees,
+        }
     }
 }
 

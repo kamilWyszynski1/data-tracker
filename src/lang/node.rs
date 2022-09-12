@@ -218,6 +218,7 @@ impl Node {
                         Ok(Variable::None)
                     }
                     Keyword::ReadMountedToString => read_mounted_to_string(&nodes, state),
+                    Keyword::Append => append(&nodes, state),
                     _ => panic!("should not be reached"),
                 }
             }
@@ -610,6 +611,57 @@ fn read_mounted_to_string(nodes: &[Variable], state: &mut SharedState) -> Result
         .context("could not from buffer to string")?;
 
     Ok(Variable::String(buf))
+}
+
+/// Appends second argument(data) to first(appended variable) - which is initialized as varaible
+/// and exists in SharedState. Function performs needed checks to maintain consitancty.
+fn append(nodes: &[Variable], state: &mut SharedState) -> Result<Variable> {
+    assert_eq!(nodes.len(), 2);
+
+    let mut iter = nodes.iter();
+    let appended = iter.next().unwrap().to_owned();
+    let data = iter.next().unwrap().to_owned();
+
+    if let Variable::String(appended) = appended {
+        let initialized = state
+            .variables
+            .get_mut(&appended)
+            .context("appended variable not initialized")?;
+
+        match initialized {
+            Variable::String(s) => {
+                if let Variable::String(data) = data {
+                    s.push_str(&data)
+                } else {
+                    // only string can be appended to a string.
+                    return Err(Error::new_eval_invalid_type(
+                        "append",
+                        format!("{:?}", data).as_str(),
+                        "Variable::String",
+                    ));
+                }
+            }
+            Variable::Vector(vector) => {
+                // we can append anything to a vector.
+                vector.push(data)
+            }
+            _ => {
+                return Err(Error::new_eval_invalid_type(
+                    "append",
+                    format!("{:?}", initialized).as_str(),
+                    "Variable::String | Variable::Vector",
+                ));
+            }
+        }
+    } else {
+        return Err(Error::new_eval_invalid_type(
+            "append",
+            format!("{:?}", appended).as_str(),
+            "Variable::String",
+        ));
+    }
+
+    Ok(Variable::None)
 }
 
 /// Parses single Variable to given type.

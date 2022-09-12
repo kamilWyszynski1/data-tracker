@@ -31,7 +31,7 @@ impl Persistance for InMemoryPersistance {
     }
 
     fn read_location(&self, key: &Uuid) -> PResult<u32> {
-        for (key, value) in (&self.data).iter() {
+        for (key, value) in self.data.iter() {
             info!("{} / {}", key.to_simple(), value);
         }
         Ok(*self.data.get(key).ok_or_else(|| {

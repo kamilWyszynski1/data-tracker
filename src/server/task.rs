@@ -1,7 +1,7 @@
 use crate::core::task::{TaskInput, TrackingTask};
 use crate::core::types::*;
 use crate::error::types::{Error, Result};
-use crate::lang::engine::Definition;
+use crate::lang::process::Process;
 use rocket::http::{ContentType, Status};
 use rocket::response::{self, Responder, Response};
 use rocket::serde::json::Json;
@@ -11,7 +11,7 @@ use serde_json::json;
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Serialize)]
 // Will be translated into [`core::types::TaskKind`];
 pub enum TaskKindRequest {
     Ticker { interval_secs: u64 }, // task with ticker.
@@ -42,7 +42,7 @@ pub struct TaskCreateRequest {
     pub sheet: String,
     pub starting_position: String,
     pub direction: Direction,
-    pub definition: Definition,
+    pub process: Process,
     pub input: Option<TaskInput>,
     pub kind_request: TaskKindRequest,
 }
@@ -73,7 +73,7 @@ pub async fn create(
     sender: &State<Sender<TrackingTask>>,
     request: Json<TaskCreateRequest>,
 ) -> TaskCreateResponse {
-    info!("definition from request: {:?}", request.definition);
+    info!("definition from request: {:?}", request.process);
 
     let tt = TrackingTask::from_task_create_request(request.0);
 
@@ -99,10 +99,9 @@ pub async fn create(
 mod tests {
     use crate::core::task::TaskInput;
     use crate::core::types::Hook;
+    use crate::lang::process::{Definition, Process};
     use crate::server::task::TaskKindRequest;
-    use crate::{
-        core::types::Direction, lang::engine::Definition, server::task::TaskCreateRequest,
-    };
+    use crate::{core::types::Direction, server::task::TaskCreateRequest};
 
     #[test]
     fn proper_test_deserializing() {
@@ -123,10 +122,15 @@ mod tests {
                 "sheet": "sheet",
                 "starting_position": "A1",
                 "direction": "horizontal",
-                "definition": {
-                    "steps": [
-                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
-                        "DEFINE(OUT, GET(var))"
+                "process": {
+                    "name": "test process",
+                    "definitions": [
+                        {
+                            "steps": [
+                                "MOCK DEFINITION 1",
+                                "MOCK DEFINITION 2"
+                            ]
+                        }
                     ]
                 },
                 "input_type": "json",
@@ -141,10 +145,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
-                        String::from("DEFINE(OUT, GET(var))"),
-                    ]),
+                    process: Process::new("test process", vec![Definition::new(vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),])], None),
                     input: Some(TaskInput::None),
                     kind_request: TaskKindRequest::Ticker{ interval_secs: 30 },
                 },
@@ -159,10 +160,15 @@ mod tests {
                 "sheet": "sheet",
                 "starting_position": "A1",
                 "direction": "horizontal",
-                "definition": {
-                    "steps": [
-                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
-                        "DEFINE(OUT, GET(var))"
+                "process": {
+                    "name": "test process",
+                    "definitions": [
+                        {
+                            "steps": [
+                                "MOCK DEFINITION 1",
+                                "MOCK DEFINITION 2"
+                            ]
+                        }
                     ]
                 },
                 "input_type": "json",
@@ -177,10 +183,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
-                        String::from("DEFINE(OUT, GET(var))"),
-                    ]),
+                    process: Process::new("test process", vec![Definition::new(vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),])], None),
                     input: Some(TaskInput::None),
                     kind_request:             TaskKindRequest::Clicked,
                 },
@@ -195,10 +198,15 @@ mod tests {
                 "sheet": "sheet",
                 "starting_position": "A1",
                 "direction": "horizontal",
-                "definition": {
-                    "steps": [
-                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
-                        "DEFINE(OUT, GET(var))"
+                "process": {
+                    "name": "test process",
+                    "definitions": [
+                        {
+                            "steps": [
+                                "MOCK DEFINITION 1",
+                                "MOCK DEFINITION 2"
+                            ]
+                        }
                     ]
                 },
                 "input_type": "json",
@@ -213,10 +221,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
-                        String::from("DEFINE(OUT, GET(var))"),
-                    ]),
+                    process: Process::new("test process", vec![Definition::new(vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),])], None),
                     input: Some(TaskInput::PSQL {
                         host: String::from("host"),
                         port: 5432,
@@ -238,10 +243,15 @@ mod tests {
                 "sheet": "sheet",
                 "starting_position": "A1",
                 "direction": "horizontal",
-                "definition": {
-                    "steps": [
-                        "DEFINE(var, VEC(1,2,3,4,GET(IN)))",
-                        "DEFINE(OUT, GET(var))"
+                "process": {
+                    "name": "test process",
+                    "definitions": [
+                        {
+                            "steps": [
+                                "MOCK DEFINITION 1",
+                                "MOCK DEFINITION 2"
+                            ]
+                        }
                     ]
                 },
                 "input_type": "json",
@@ -255,10 +265,7 @@ mod tests {
                     sheet: String::from("sheet"),
                     starting_position: String::from("A1"),
                     direction: Direction::Horizontal,
-                    definition: Definition::new(vec![
-                        String::from("DEFINE(var, VEC(1,2,3,4,GET(IN)))"),
-                        String::from("DEFINE(OUT, GET(var))"),
-                    ]),
+                    process: Process::new("test process", vec![Definition::new(vec![String::from("MOCK DEFINITION 1"),String::from("MOCK DEFINITION 2"),])], None),
                     input: None,
                     kind_request: TaskKindRequest::Triggered(Hook::PSQL{
                         host: String::from("host"),

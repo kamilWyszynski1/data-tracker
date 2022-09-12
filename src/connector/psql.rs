@@ -106,12 +106,12 @@ pub async fn monitor_changes(
             stream::poll_fn(move |cx| connection.poll_message(cx).map_err(|e| panic!("{}", e)));
 
         tokio::select! {
-        _ = shutdown.recv() => {
-            debug!("monitor_changes: closing");
-            return;
-        }
-        n = stream.next() => match n {
-            Some(n) => {
+            _ = shutdown.recv() => {
+                debug!("monitor_changes: closing");
+                return;
+            }
+
+            n = stream.next() => if let Some(n) = n {
                 let msg = n.unwrap();
                 if let AsyncMessage::Notification(notification) = msg {
                     debug!("notification: {:?}", notification);
@@ -122,8 +122,6 @@ pub async fn monitor_changes(
                 } else {
                     return;
                 }
-            },
-            None => (),
             }
         }
         drop(client);

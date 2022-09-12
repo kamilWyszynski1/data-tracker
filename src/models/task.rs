@@ -14,7 +14,7 @@ pub struct TaskModel {
     pub direction: Direction,
     pub with_timestamp: bool, // whether to write timestamp.
     pub timestamp_position: TimestampPosition,
-    pub eval_forest: String,   // definition of handling data.
+    pub process: String,       // definition of handling data.
     pub input: Option<String>, // json of input definition.
     pub status: State,
     pub kind: String, // json of TaskKind definition.
@@ -33,7 +33,7 @@ impl TaskModel {
             status: tt.status,
             with_timestamp: tt.with_timestamp,
             timestamp_position: tt.timestamp_position,
-            eval_forest: tt.eval_forest.to_string().unwrap_or_default(),
+            process: tt.process.try_to_string().unwrap_or_default(),
             input: tt.input.as_ref().map(|f| f.to_json()),
             kind: tt.kind_request.to_json(),
         }

@@ -113,7 +113,7 @@ impl APIWrapper {
             .doit()
             .await;
 
-        return match result {
+        match result {
             Err(e) => match e {
                 Error::Failure(res) => Err(IError::new_internal(
                     String::from("get"),
@@ -144,7 +144,7 @@ impl APIWrapper {
                 .into_iter()
                 .map(|v| v[0].clone())
                 .collect()),
-        };
+        }
     }
 }
 

@@ -7,12 +7,14 @@ use super::types::State;
 use crate::core::types::TaskKind;
 use crate::error::types::LogExt;
 use crate::error::types::{Error, Result};
-use crate::lang::eval::evaluate_data;
+use crate::lang::engine::Engine;
+use crate::lang::process::Process;
 use crate::lang::variable::Variable;
 use crate::models::report::ReportModel;
 use crate::persistance::interface::Db;
 use crate::shutdown::Shutdown;
 use crate::wrap::API;
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use futures::Future;
 use log::info;
@@ -21,7 +23,7 @@ use std::collections::HashMap;
 use std::result::Result as StdResult;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
 use uuid::Uuid;
@@ -240,13 +242,12 @@ where
                 }
             }
         }
-        match background_job {
-            Some(join) => {
-                info!("waiting for task background jobs");
-                join.await.expect("failed to wait for task background job")
-            }
-            None => (),
+
+        if let Some(join) = background_job {
+            info!("waiting for task background jobs");
+            join.await.expect("failed to wait for task background job")
         }
+
         info!("TaskHandler for {} task closed", self.task.id);
     }
 
@@ -257,8 +258,8 @@ where
 
             let evaluated = report
                 .section(String::from("EVALUATE"), async || {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    evaluate_data(input_data, &self.task.eval_forest)
+                    // tokio::time::sleep(Duration::from_millis(50)).await;
+                    evaluate_data(input_data.clone(), self.task.process.clone())
                 })
                 .await;
 
@@ -317,6 +318,16 @@ where
         })
         .await;
     }
+}
+
+/// Uses Engine utility to run task's process.
+fn evaluate_data(input_data: InputData, task_process: Process) -> Result<Variable> {
+    let mut engine = Engine::new(Variable::from(input_data), task_process)?;
+
+    engine.fire()?;
+
+    let out = engine.get("OUT").context("OUT variable not found")?;
+    Ok(out.clone())
 }
 
 fn receive_input_data(task: TrackingTask, sender: mpsc::Sender<InputData>) {
@@ -582,7 +593,7 @@ mod tests {
             data_fn(),
             TaskKindRequest::Triggered(Hook::None),
         );
-        let id = tt.id.clone();
+        let id = tt.id;
 
         let db = InMemoryPersistance::new();
         let channels_manager = ChannelsManager::default();

@@ -1,0 +1,58 @@
+{
+    "name": "process2",
+    "definitions": [
+        {
+            "name": "1",
+            "steps": [
+                "DEFINE(file1, ReadMountedToString(file1))",
+                "DEFINE(file2, ReadMountedToString(file2))",
+                "RunSubtree(13)",
+                "RunSubtree(11)",
+                "RunSubtree(12)"
+            ],
+            "subtrees": [
+                {
+                    "name": "13",
+                    "definition": {
+                        "name": "131",
+                        "steps": [
+                            "DEFINE(OUT, VEC(GET(file1), GET(file2))"
+                        ]
+                    }
+                },
+                {
+                    "name": "11",
+                    "definition": {
+                        "name": "111",
+                        "steps": [
+                            "BREAK",
+                            "DEFINE(OUT, GET(file1))"
+                        ]
+                    }
+                },
+                {
+                    "name": "12",
+                    "definition": {
+                        "name": "121",
+                        "steps": [
+                            "BREAK",
+                            "DEFINE(OUT, GET(file1))"
+                        ]
+                    }
+                }
+            ]
+        }
+    ],
+    "mounts": [
+        {
+            "alias": "file1",
+            "path": "/home/kamil/go/src/DataTracker/src/lang/test_data/file1.txt",
+            "mount_type": "File"
+        },
+        {
+            "alias": "file2",
+            "path": "/home/kamil/go/src/DataTracker/src/lang/test_data/file2.txt",
+            "mount_type": "File"
+        }
+    ]
+}

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use uuid::Uuid; // crate for async traits.
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 /// Command that can be run in Manager.
 pub enum Command {
     Resume, // stars stopped task.
@@ -22,7 +22,7 @@ impl Command {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 /// Contains tasks' uuid and command to be applied.
 pub struct TaskCommand {
     pub id: Uuid,

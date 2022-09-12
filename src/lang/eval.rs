@@ -1,22 +1,30 @@
-use super::engine::Engine;
-use super::variable::Variable;
-use super::{engine::Definition, node::Node};
+use super::node::Node;
+use super::process::Definition;
+use crate::error::types::{Error, Result};
 use crate::lang::lexer::{Lexer, Parser};
-use crate::{
-    core::task::InputData,
-    error::types::{Error, Result},
-};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq)]
-pub struct EvalForest {
+pub(super) struct EvalForest {
     pub roots: Vec<Node>,
     pub subtrees: HashMap<String, Vec<Node>>,
+
+    // subtress that will be run implicitly, cannot be called from Definition's steps.
+    pub implicit_subtrees: HashMap<String, Vec<Node>>,
 }
 
 impl EvalForest {
-    pub fn from_definition(def: &Definition) -> Self {
+    /// Serializes whole tree to json string.
+    pub fn to_string(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
+    }
+}
+
+impl From<Definition> for EvalForest {
+    fn from(def: Definition) -> Self {
         let mut roots = vec![];
 
         // parse base steps in Definition.
@@ -25,6 +33,8 @@ impl EvalForest {
         }
 
         let mut subtrees = HashMap::default();
+        let mut implicit_subtrees = HashMap::new();
+
         // parse subtrees in Definition.
         for subtree in def.subtrees.as_ref().unwrap_or(&vec![]) {
             let mut roots = vec![];
@@ -33,21 +43,44 @@ impl EvalForest {
             for step in &subtree.definition.steps {
                 roots.push(Parser::new(Lexer::new(step).make_tokens()).parse().unwrap());
             }
-            subtrees.insert(subtree.name.clone(), roots);
+
+            // check if subtree is marked as implicit - if so, do not parse it as it'll be run separatelly.
+            if def
+                .implicit_subtrees
+                .as_ref()
+                .unwrap_or(&vec![])
+                .contains(&subtree.name)
+            {
+                implicit_subtrees.insert(subtree.name.clone(), roots);
+            } else {
+                subtrees.insert(subtree.name.clone(), roots);
+            }
         }
 
-        EvalForest { roots, subtrees }
+        EvalForest {
+            roots,
+            subtrees,
+            implicit_subtrees,
+        }
     }
+}
 
-    /// Serializes whole tree to json string.
-    pub fn to_string(&self) -> Result<String> {
-        serde_json::to_string(self)
-            .map_err(|err| Error::new_eval_internal(String::from("to_string"), err.to_string()))
-    }
+impl TryFrom<&str> for EvalForest {
+    type Error = Error;
 
     /// Loads tree from json string.
-    pub fn from_string(s: &str) -> Result<Self> {
-        serde_json::from_str::<Self>(s)
+    fn try_from(value: &str) -> Result<Self> {
+        serde_json::from_str::<Self>(value)
+            .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
+    }
+}
+
+impl TryFrom<String> for EvalForest {
+    type Error = Error;
+
+    /// Loads tree from json string.
+    fn try_from(value: String) -> Result<Self> {
+        serde_json::from_str::<Self>(&value)
             .map_err(|err| Error::new_eval_internal(String::from("from_string"), err.to_string()))
     }
 }
@@ -59,19 +92,4 @@ impl IntoIterator for EvalForest {
     fn into_iter(self) -> Self::IntoIter {
         self.roots.into_iter()
     }
-}
-
-/// Function creates new engine and calls fire method for given Definition.
-pub fn evaluate_data(data: &InputData, ef: &EvalForest) -> Result<Variable> {
-    let mut engine = Engine::new(Variable::from_input_data(data), ef.clone());
-    engine.fire()?;
-    Ok(engine
-        .get("OUT")
-        .ok_or_else(|| {
-            Error::new_eval_internal(
-                String::from("evaluate_data"),
-                String::from("There is not OUT variable!!!"),
-            )
-        })?
-        .clone())
 }

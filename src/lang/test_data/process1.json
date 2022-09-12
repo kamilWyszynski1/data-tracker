@@ -1,0 +1,17 @@
+{
+    "name": "test process",
+    "definitions": [
+        {
+            "steps": [
+                "DEFINE(OUT, ReadMountedToString(file1))"
+            ]
+        }
+    ],
+    "mounts": [
+        {
+            "alias": "file1",
+            "path": "/home/kamil/go/src/DataTracker/src/lang/test_data/file1.txt",
+            "mount_type": "File"
+        }
+    ]
+}

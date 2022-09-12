@@ -12,6 +12,7 @@ use crate::models::task::TaskModel;
 use crate::schema::*;
 use diesel::{insert_into, ExpressionMethods, QueryDsl};
 use diesel::{Connection, SqliteConnection};
+use std::convert::TryFrom;
 use std::env;
 use uuid::Uuid;
 
@@ -108,7 +109,7 @@ impl Persistance for SqliteClient {
                     "".to_string(),
                 )
             })?;
-        Ok(TrackingTask::from_task_model(&t).unwrap())
+        Ok(TrackingTask::try_from(t).unwrap())
     }
 
     fn update_task_status(&mut self, id: Uuid, s: State) -> PResult<()> {
@@ -150,7 +151,7 @@ impl Persistance for SqliteClient {
                 )
             })?;
         t.into_iter()
-            .map(|tm| TrackingTask::from_task_model(&tm))
+            .map(TrackingTask::try_from)
             .collect::<PResult<Vec<TrackingTask>>>()
     }
 
@@ -196,8 +197,7 @@ impl Persistance for SqliteClient {
 mod tests {
     use crate::core::task::{TaskInput, TrackingTask};
     use crate::core::types::*;
-    use crate::lang::engine::Definition;
-    use crate::lang::eval::EvalForest;
+    use crate::lang::process::{Definition, Process};
     use crate::persistance::interface::Persistance;
     use crate::server::task::TaskKindRequest;
     use diesel::{Connection, SqliteConnection};
@@ -220,11 +220,15 @@ mod tests {
         // This will run the necessary migrations.
         embedded_migrations::run_with_output(&connection, &mut std::io::stdout()).unwrap();
 
-        let eval_forest = EvalForest::from_definition(&Definition::new(vec![
-            String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
-            String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
-            String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
-        ]));
+        let process = Process::new(
+            "test process",
+            vec![Definition::new(vec![
+                String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
+                String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
+                String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
+            ])],
+            None,
+        );
 
         let id = Uuid::parse_str("a54a0fb9-25c9-4f73-ad82-0b7f30ca1ab6").unwrap();
         let tt = TrackingTask {
@@ -239,7 +243,7 @@ mod tests {
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
-            eval_forest,
+            process,
             callbacks: None,
             status: State::Created,
             input: Some(TaskInput::String {
@@ -275,8 +279,15 @@ mod tests {
         // This will run the necessary migrations.
         embedded_migrations::run_with_output(&connection, &mut std::io::stdout()).unwrap();
 
-        let eval_forest = EvalForest::default();
-
+        let process = Process::new(
+            "test process",
+            vec![Definition::new(vec![
+                String::from("DEFINE(var2, EXTRACT(GET(var), kty))"),
+                String::from("DEFINE(var3, EXTRACT(GET(var), use))"),
+                String::from("DEFINE(var4, EXTRACT(GET(var), n))"),
+            ])],
+            None,
+        );
         let id = Uuid::parse_str("a54a0fb9-25c9-4f73-ad82-0b7f30ca1ab6").unwrap();
         let kind_request = TaskKindRequest::Ticker { interval_secs: 1 };
         let tt = TrackingTask {
@@ -291,7 +302,7 @@ mod tests {
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
-            eval_forest: eval_forest.clone(),
+            process: process.clone(),
             input: Some(TaskInput::String {
                 value: String::from("test"),
             }),
@@ -312,7 +323,7 @@ mod tests {
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
-            eval_forest: eval_forest.clone(),
+            process: process.clone(),
             input: Some(TaskInput::String {
                 value: String::from("test"),
             }),
@@ -333,7 +344,7 @@ mod tests {
             with_timestamp: true,
             timestamp_position: TimestampPosition::Before,
             invocations: None,
-            eval_forest,
+            process,
             input: Some(TaskInput::String {
                 value: String::from("test"),
             }),

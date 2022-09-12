@@ -99,7 +99,7 @@ where
 
         for (i, s) in spawned.into_iter() {
             s.await
-                .expect(&format!("failed to await TaskHandler for {} task", i));
+                .unwrap_or_else(|_| panic!("failed to await TaskHandler for {} task", i));
         }
         info!("Tracker closed");
     }
@@ -265,7 +265,7 @@ mod tests {
             TestAPI {
                 check: check_cases,
                 fail: false,
-                fail_msg: fail_msg,
+                fail_msg,
             },
             Db::new(Box::new(mock_persistence)),
             channels_manager,
@@ -286,9 +286,8 @@ mod tests {
     #[tokio::test]
     #[timeout(10000)]
     async fn test_saved_tasks() {
-        use mockall::predicate::*;
         use tokio::sync::oneshot;
-        let (tx, rx) = oneshot::channel::<bool>();
+        let (_tx, _rx) = oneshot::channel::<bool>();
 
         let mut t1 = TrackingTask::new(
             "spreadsheet4".to_string(),
@@ -321,7 +320,7 @@ mod tests {
             .returning(move |_| Ok(vec![t1.clone(), t2.clone()]));
 
         let (shutdown_notify, shutdown) = broadcast::channel(1);
-        let (send, receive) = channel::<TrackingTask>(1);
+        let (_send, receive) = channel::<TrackingTask>(1);
         let (_cmd_send, cmd_receive) = channel::<TaskCommand>(1);
 
         let mut t = Tracker::new(

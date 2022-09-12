@@ -2,16 +2,20 @@ use super::lexer::Keyword;
 use super::variable::Variable;
 use crate::error::types::{Error, Result};
 use crate::lang::variable::value_object_to_variable_object;
+use anyhow::Context;
 use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::io::Read;
+use std::rc::Rc;
 use std::{
     collections::HashMap,
     fmt::{self, Display},
 };
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 /// Enum for Node type.
 pub enum NodeEnum {
     None,
@@ -51,6 +55,20 @@ impl Stack {
             self.should_break = false;
         }
     }
+}
+
+#[derive(Default)]
+pub struct SharedState {
+    // holds variables state.
+    pub variables: HashMap<String, Variable>,
+
+    // holds parsed subtrees.
+    pub subtress: HashMap<String, Vec<Node>>,
+
+    // holds created readers for wanted mounted options.
+    pub mounted: HashMap<String, Rc<RefCell<dyn Read>>>,
+
+    pub eval_metadata: EvalMetadata,
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -126,14 +144,9 @@ impl Node {
         }
     }
 
-    pub fn start_evaluation(
-        &self,
-        variables: &mut HashMap<String, Variable>,
-        subtrees: &HashMap<String, Vec<Node>>,
-    ) -> Result<Variable> {
+    pub fn start_evaluation(&self, state: &mut SharedState) -> Result<Variable> {
         let mut subtree_stack = Stack::default();
-        let mut metadata = EvalMetadata::default();
-        self.eval(variables, subtrees, &mut subtree_stack, &mut metadata)
+        self.eval(state, &mut subtree_stack)
     }
 
     /// Evaluates whole tree to a single Variable.
@@ -142,13 +155,7 @@ impl Node {
     /// this function will go trough tree created from that declaration
     /// and evaluate root node and all of nodes below in order to return
     /// single Variable as a result.
-    pub fn eval(
-        &self,
-        variables: &mut HashMap<String, Variable>,
-        subtrees: &HashMap<String, Vec<Node>>,
-        stack: &mut Stack,
-        metadata: &mut EvalMetadata,
-    ) -> Result<Variable> {
+    pub fn eval(&self, state: &mut SharedState, stack: &mut Stack) -> Result<Variable> {
         match self.value {
             NodeEnum::None => Ok(Variable::None),
             NodeEnum::Keyword(ref keyword) => {
@@ -159,28 +166,28 @@ impl Node {
 
                 // must be checked before further evaluation.
                 if let Keyword::If = keyword {
-                    if !if_check(&self.nodes, variables, subtrees)? {
+                    if !if_check(&self.nodes, state)? {
                         return Ok(Variable::None);
                     }
                 }
 
                 match keyword {
                     Keyword::If => {
-                        if !if_check(&self.nodes, variables, subtrees)? {
+                        if !if_check(&self.nodes, state)? {
                             return Ok(Variable::None);
                         }
                     }
                     Keyword::Map => {
-                        return map_function(&self.nodes, variables, subtrees, metadata);
+                        return map_function(&self.nodes, state);
                     }
-                    Keyword::Filter => return filter(&self.nodes, variables, subtrees),
+                    Keyword::Filter => return filter(&self.nodes, state),
                     _ => {}
                 }
 
                 let nodes = self
                     .nodes
                     .iter()
-                    .map(|n| n.eval(variables, subtrees, stack, metadata))
+                    .map(|n| n.eval(state, stack))
                     .collect::<Result<Vec<Variable>>>()?;
 
                 // check number of arguments.
@@ -196,15 +203,13 @@ impl Node {
                     Keyword::Mult => mult(&nodes),
                     Keyword::Vec => Ok(Variable::Vector(nodes)),
                     Keyword::Extract => extract(&nodes),
-                    Keyword::Define => define(&nodes, variables),
-                    Keyword::Get => get(&nodes, variables),
+                    Keyword::Define => define(&nodes, &mut state.variables),
+                    Keyword::Get => get(&nodes, &state.variables),
                     Keyword::Json => json(&nodes),
                     Keyword::Object => object(&nodes),
                     Keyword::HTTP => http(&nodes),
                     Keyword::Log => log(&nodes),
-                    Keyword::RunSubtree => {
-                        run_subtree(&nodes, variables, subtrees, stack, metadata)
-                    }
+                    Keyword::RunSubtree => run_subtree(&nodes, state, stack),
                     Keyword::If => if_return(&nodes),
                     Keyword::Eq => eq(&nodes),
                     Keyword::Neq => neq(&nodes),
@@ -212,6 +217,8 @@ impl Node {
                         break_function(stack);
                         Ok(Variable::None)
                     }
+                    Keyword::ReadMountedToString => read_mounted_to_string(&nodes, state),
+                    Keyword::Append => append(&nodes, state),
                     _ => panic!("should not be reached"),
                 }
             }
@@ -412,7 +419,7 @@ fn define(nodes: &[Variable], state: &mut HashMap<String, Variable>) -> Result<V
 // Returns declared variable.
 fn get(nodes: &[Variable], state: &HashMap<String, Variable>) -> Result<Variable> {
     let v = parse_single_param::<String>(nodes)
-        .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
+        .map_err(|err| Error::new_eval_internal(String::from("get"), err.to_string()))?;
 
     let g = state.get(&v).ok_or_else(|| {
         Error::new_eval_internal(String::from("get"), format!("variable: {} not found", v))
@@ -423,7 +430,7 @@ fn get(nodes: &[Variable], state: &HashMap<String, Variable>) -> Result<Variable
 // Returns Variable::Object parsed from json-like string.
 fn object(nodes: &[Variable]) -> Result<Variable> {
     let v = parse_single_param::<String>(nodes)
-        .map_err(|err| Error::new_eval_internal(String::from("bool"), err.to_string()))?;
+        .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
 
     let obj: Value = serde_json::from_str(&v)
         .map_err(|err| Error::new_eval_internal(String::from("object"), err.to_string()))?;
@@ -467,13 +474,7 @@ const MAX_SUBTREE_STACK: usize = 100;
 
 /// Performs subtree run on each elements of Vector/Object, other types are not supported.
 /// Input and Output type of Variable must match.
-fn run_subtree(
-    nodes: &[Variable],
-    variables: &mut HashMap<String, Variable>,
-    subtrees: &HashMap<String, Vec<Node>>,
-    stack: &mut Stack,
-    metadata: &mut EvalMetadata,
-) -> Result<Variable> {
+fn run_subtree(nodes: &[Variable], state: &mut SharedState, stack: &mut Stack) -> Result<Variable> {
     if stack.stack.len() == MAX_SUBTREE_STACK {
         return Err(Error::new_eval_internal(
             String::from("run_subtree"),
@@ -486,46 +487,31 @@ fn run_subtree(
 
     debug!("run_subtree - running {} subtree", subtree_name);
 
-    subtrees
+    let subtree = state
+        .subtress
         .get(subtree_name)
-        .ok_or_else(|| {
-            Error::new_eval_internal(
-                String::from("run_subtree_for_each"),
-                format!("invalid {} subtree", subtree_name),
-            )
-        })
-        .and_then(|subtree| {
-            stack.push(subtree_name.to_string()); // add subtree call to
-            fire_subtree(subtree, variables, subtrees, stack, metadata)
-        })
-        .map(|_| Variable::None)
+        .context("no subtree found")?
+        .clone();
+
+    stack.push(subtree_name.to_string()); // add subtree call to
+    fire_subtree(&subtree, state, stack)?;
+
+    Ok(Variable::None)
 }
 
-pub fn fire_subtree(
-    roots: &[Node],
-    variables: &mut HashMap<String, Variable>,
-    subtrees: &HashMap<String, Vec<Node>>,
-    stack: &mut Stack,
-    metadata: &mut EvalMetadata,
-) -> Result<()> {
+pub fn fire_subtree(roots: &[Node], state: &mut SharedState, stack: &mut Stack) -> Result<()> {
     for root in roots {
-        root.eval(variables, subtrees, stack, metadata)?;
+        root.eval(state, stack)?;
     }
     Ok(())
 }
 
 /// Function checks *first* element of nodes if can be evaluated to 'true'.
 /// If so, second arguments as some operation will be run.
-fn if_check(
-    nodes: &[Node],
-    state: &mut HashMap<String, Variable>,
-    subtrees: &HashMap<String, Vec<Node>>,
-) -> Result<bool> {
+fn if_check(nodes: &[Node], state: &mut SharedState) -> Result<bool> {
     debug!("if_function - nodes: {:?}", nodes);
     // eval first node which is conditional value.
-    nodes[0]
-        .start_evaluation(state, subtrees)
-        .map(|v| v.is_true())
+    nodes[0].start_evaluation(state).map(|v| v.is_true())
 }
 
 fn break_function(stack: &mut Stack) {
@@ -545,21 +531,16 @@ fn neq(nodes: &[Variable]) -> Result<Variable> {
     Ok(Variable::Bool(!nodes[0].equals(&nodes[1])))
 }
 
-fn map_function(
-    nodes: &[Node],
-    variables: &mut HashMap<String, Variable>,
-    subtrees: &HashMap<String, Vec<Node>>,
-    metadata: &mut EvalMetadata,
-) -> Result<Variable> {
+fn map_function(nodes: &[Node], state: &mut SharedState) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
-    let mapped_variable = match nodes[0].start_evaluation(variables, subtrees) {
+    let mapped_variable = match nodes[0].start_evaluation(state) {
         Ok(v) => Ok(v),
-        Err(e) => match &metadata.mapped_variable {
+        Err(e) => match &state.eval_metadata.mapped_variable {
             Some(v) => Ok(v.clone()),
             None => Err(e),
         },
     }?;
-    metadata.mapped_variable = Some(mapped_variable.clone());
+    state.eval_metadata.mapped_variable = Some(mapped_variable.clone());
 
     let mut mapping_node = nodes[1].clone();
 
@@ -568,7 +549,7 @@ fn map_function(
             vec.into_iter()
                 .map(|v| {
                     mapping_node.nodes[0] = v.to_node();
-                    mapping_node.start_evaluation(variables, subtrees).unwrap()
+                    mapping_node.start_evaluation(state).unwrap()
                 })
                 .collect(),
         )),
@@ -583,29 +564,21 @@ fn map_function(
     }
 }
 
-fn filter(
-    nodes: &[Node],
-    variables: &mut HashMap<String, Variable>,
-    subtrees: &HashMap<String, Vec<Node>>,
-) -> Result<Variable> {
+fn filter(nodes: &[Node], state: &mut SharedState) -> Result<Variable> {
     assert_eq!(nodes.len(), 2);
 
-    let filtered_variable = nodes[0].start_evaluation(variables, subtrees)?;
+    let filtered_variable = nodes[0].start_evaluation(state)?;
 
     match filtered_variable {
         Variable::Vector(vec) => Ok(Variable::Vector(
             vec.iter()
                 .cloned()
-                .map(|v| v.clone())
                 .filter(|v| {
                     let mut filtering_node = nodes[1].clone();
 
                     filtering_node.change_special_function_placeholder(v.to_node());
                     // filtering_node.nodes[0] = v.to_node();
-                    filtering_node
-                        .start_evaluation(variables, subtrees)
-                        .unwrap()
-                        .is_true()
+                    filtering_node.start_evaluation(state).unwrap().is_true()
                 })
                 .collect(),
         )),
@@ -617,6 +590,78 @@ fn filter(
             ),
         )),
     }
+}
+
+fn read_mounted_to_string(nodes: &[Variable], state: &mut SharedState) -> Result<Variable> {
+    assert_eq!(nodes.len(), 1);
+
+    let alias = parse_single_param::<String>(nodes).map_err(|err| {
+        Error::new_eval_internal(String::from("read_mounted_to_string"), err.to_string())
+    })?;
+
+    let reader = state
+        .mounted
+        .get(&alias)
+        .context("no reader for wanted alias")?;
+
+    let mut buf = String::new();
+    reader
+        .borrow_mut()
+        .read_to_string(&mut buf)
+        .context("could not from buffer to string")?;
+
+    Ok(Variable::String(buf))
+}
+
+/// Appends second argument(data) to first(appended variable) - which is initialized as varaible
+/// and exists in SharedState. Function performs needed checks to maintain consitancty.
+fn append(nodes: &[Variable], state: &mut SharedState) -> Result<Variable> {
+    assert_eq!(nodes.len(), 2);
+
+    let mut iter = nodes.iter();
+    let appended = iter.next().unwrap().to_owned();
+    let data = iter.next().unwrap().to_owned();
+
+    if let Variable::String(appended) = appended {
+        let initialized = state
+            .variables
+            .get_mut(&appended)
+            .context("appended variable not initialized")?;
+
+        match initialized {
+            Variable::String(s) => {
+                if let Variable::String(data) = data {
+                    s.push_str(&data)
+                } else {
+                    // only string can be appended to a string.
+                    return Err(Error::new_eval_invalid_type(
+                        "append",
+                        format!("{:?}", data).as_str(),
+                        "Variable::String",
+                    ));
+                }
+            }
+            Variable::Vector(vector) => {
+                // we can append anything to a vector.
+                vector.push(data)
+            }
+            _ => {
+                return Err(Error::new_eval_invalid_type(
+                    "append",
+                    format!("{:?}", initialized).as_str(),
+                    "Variable::String | Variable::Vector",
+                ));
+            }
+        }
+    } else {
+        return Err(Error::new_eval_invalid_type(
+            "append",
+            format!("{:?}", appended).as_str(),
+            "Variable::String",
+        ));
+    }
+
+    Ok(Variable::None)
 }
 
 /// Parses single Variable to given type.

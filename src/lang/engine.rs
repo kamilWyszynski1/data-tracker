@@ -1,54 +1,35 @@
-use super::{eval::EvalForest, node::Node, variable::Variable};
-use crate::error::types::{Error, Result};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-/// Helper definition that can be run inside main tree.
-/// IN and OUT type of SubTree is always the same.
-pub struct SubTree {
-    pub name: String,
-    pub input_type: Option<String>,
-    pub definition: Definition,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Definition {
-    pub steps: Vec<String>,
-    pub subtrees: Option<Vec<SubTree>>,
-}
-
-impl Definition {
-    pub fn new(steps: Vec<String>) -> Self {
-        for step in &steps {
-            assert_eq!(step.matches('(').count(), step.matches(')').count())
-        }
-        Definition {
-            steps,
-            subtrees: None,
-        }
-    }
-}
-
-impl IntoIterator for Definition {
-    type Item = String;
-    type IntoIter = <Vec<String> as IntoIterator>::IntoIter; // so that you don't have to write std::vec::IntoIter, which nobody remembers anyway
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.steps.into_iter()
-    }
-}
+use super::{
+    eval::EvalForest,
+    node::{EvalMetadata, SharedState},
+    process::{MountOption, MountType, Process},
+    variable::Variable,
+};
+use crate::error::types::Result;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fs::File,
+    io::{BufReader, Read},
+    rc::Rc,
+};
 
 pub struct Engine {
+    // common state for every definition.
     variables: HashMap<String, Variable>,
-    eval_forest: EvalForest,
+
+    // set of eval forest to run.
+    eval_forests: Vec<EvalForest>,
+
+    // set of mounted readers.
+    mounted: HashMap<String, Rc<RefCell<dyn Read>>>,
 }
 
 impl Engine {
     pub fn default() -> Self {
         Engine {
             variables: HashMap::new(),
-            eval_forest: EvalForest::default(),
+            eval_forests: vec![],
+            mounted: HashMap::new(),
         }
     }
 
@@ -61,74 +42,161 @@ impl Engine {
     /// a evaluation that will happen in engine. User should
     /// write wanted data to OUT at last as this variable will
     /// be taken out from Engine after all.
-    pub fn new(in_var: Variable, eval_forest: EvalForest) -> Self {
+    pub fn new(in_var: Variable, process: Process) -> Result<Self> {
+        let mounted = mount_options(&process.mounts.unwrap_or_default())?;
+
         let mut variables = HashMap::new();
         variables.insert(String::from("IN"), in_var.clone());
         variables.insert(String::from("OUT"), in_var);
-        Engine {
-            variables,
-            eval_forest,
+
+        let mut eval_forests = vec![];
+        // parse Process into Vec of EvalForest.
+
+        for def in process.definitions {
+            eval_forests.push(EvalForest::from(def));
         }
+
+        Ok(Self {
+            variables,
+            eval_forests,
+            mounted,
+        })
     }
 
-    pub fn new_for_subtree(
-        in_var: Variable,
-        mut variables: HashMap<String, Variable>,
-        eval_forest: EvalForest,
-    ) -> Self {
-        variables.insert(String::from("IN"), in_var.clone());
-        variables.insert(String::from("OUT"), in_var);
-        Engine {
-            variables,
-            eval_forest,
-        }
-    }
-
-    pub fn set(&mut self, key: String, v: Variable) {
-        self.variables.insert(key, v);
-    }
     pub fn get(&self, key: &str) -> Option<&Variable> {
         self.variables.get(key)
     }
 
-    /// Takes definition run it step by step.
+    /// Takes set of eval forest and runs them one by one.
     pub fn fire(&mut self) -> Result<()> {
-        for root in self.eval_forest.roots.clone().into_iter() {
-            root.start_evaluation(&mut self.variables, &self.eval_forest.subtrees)?;
+        let mut shared_state = SharedState {
+            variables: self.variables.clone(),
+            subtress: HashMap::default(),
+            mounted: self.mounted.clone(),
+            eval_metadata: EvalMetadata::default(),
+        };
+
+        for ef in self.eval_forests.clone() {
+            for root in ef.clone() {
+                shared_state.subtress = ef.subtrees.clone();
+                root.start_evaluation(&mut shared_state)?;
+            }
+
+            // for now we only support 1 level of nesting.
+            for (subtree_name, roots) in &ef.implicit_subtrees {
+                debug!("implicitly running {subtree_name} subtree");
+                for root in roots {
+                    root.start_evaluation(&mut shared_state)?;
+                }
+            }
         }
+
+        // rewrite variables from tree execution.
+        self.variables = shared_state.variables;
+
         Ok(())
     }
 }
 
-pub fn evaluate(in_var: Option<Variable>, eval_forest: &EvalForest) -> Result<Variable> {
-    let mut variables = HashMap::new();
+fn mount_options(options: &[MountOption]) -> Result<HashMap<String, Rc<RefCell<dyn Read>>>> {
+    let mut mounted: HashMap<String, Rc<RefCell<dyn Read>>> = HashMap::new();
 
-    in_var.and_then(|variable| {
-        variables.insert(String::from("IN"), variable.clone());
-        variables.insert(String::from("OUT"), variable);
-        Some(())
-    });
+    for opt in options {
+        match opt.mount_type {
+            MountType::File => {
+                let file = File::open(&opt.path)?;
+                let reader = BufReader::new(file);
 
-    fire(&eval_forest.roots, &mut variables, &eval_forest.subtrees)?;
+                mounted.insert(opt.alias.clone(), Rc::new(RefCell::new(reader)));
+            }
+        }
+    }
 
-    variables
-        .get("OUT")
-        .ok_or_else(|| {
-            Error::new_eval_internal(
-                String::from("evaluate"),
-                String::from("failed to get 'OUT' variable"),
-            )
-        })
-        .and_then(|v| Ok(v.clone()))
+    Ok(mounted)
 }
 
-pub fn fire(
-    roots: &[Node],
-    variables: &mut HashMap<String, Variable>,
-    subtrees: &HashMap<String, Vec<Node>>,
-) -> Result<()> {
-    for root in roots {
-        root.start_evaluation(variables, subtrees)?;
+#[cfg(test)]
+mod tests {
+    use super::Engine;
+    use crate::error::types::Result;
+    use crate::lang::process::Process;
+    use crate::lang::variable::Variable;
+    use anyhow::Context;
+    use std::fs::File;
+    use std::io::BufReader;
+    use std::path::Path;
+
+    fn process_file_to_struct(path: impl AsRef<Path>) -> Result<Process> {
+        let file = File::open(path.as_ref()).context(format!(
+            "could not open file: {}",
+            path.as_ref().to_str().unwrap()
+        ))?;
+        let reader = BufReader::new(file);
+
+        let u = serde_json::from_reader(reader).context("could not deserialize to process")?;
+
+        Ok(u)
     }
-    Ok(())
+
+    #[test]
+    fn test_process1() {
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("src")
+            .join("lang")
+            .join("test_data")
+            .join("process1.json");
+
+        let process = process_file_to_struct(path).unwrap();
+
+        let mut engine = Engine::new(Variable::None, process).unwrap();
+        engine.fire().unwrap();
+
+        assert_eq!(
+            engine.get("OUT").unwrap(),
+            &Variable::String(String::from("test data here"))
+        );
+    }
+
+    #[test]
+    fn test_process2() {
+        env_logger::init();
+
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("src")
+            .join("lang")
+            .join("test_data")
+            .join("process2.json");
+
+        let process = process_file_to_struct(path).unwrap();
+        let mut engine = Engine::new(Variable::None, process).unwrap();
+        engine.fire().unwrap();
+
+        assert_eq!(
+            engine.get("OUT").unwrap(),
+            &Variable::Vector(vec![
+                Variable::String("test data here".into()),
+                Variable::String("test file content2".into())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_process3() {
+        env_logger::init();
+
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("src")
+            .join("lang")
+            .join("test_data")
+            .join("process3.json");
+
+        let process = process_file_to_struct(path).unwrap();
+        let mut engine = Engine::new(Variable::String("".into()), process).unwrap();
+        engine.fire().unwrap();
+
+        assert_eq!(engine.get("OUT").unwrap(), &Variable::Int(13));
+    }
 }

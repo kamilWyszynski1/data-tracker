@@ -26,9 +26,9 @@ derivative = "2.2.0"
 reqwest = { version = "0.11.10", features = ["blocking", "json"] }
 rdkafka = { version = "0.28.0", features = ["cmake-build"] }
 mockall = "0.11.0"
-tonic-build = "0.7.0"
-tonic = "0.7.0"
-prost = "0.10"
+tonic-build = "0.8.0"
+tonic = "0.8.1"
+prost = "0.11"
 tokio-stream = "0.1.8"
 futures = "0.3.21"
 tui = "0.17"
@@ -36,9 +36,10 @@ crossterm = "0.22"
 postgres = "0.19.2" # data function.
 tokio-postgres = "0.7.6" # changes monitor.
 chrono = "0.4.19"
+anyhow = "1.0.64"
 
 [build-dependencies]
-tonic-build = "0.7.0"
+tonic-build = "0.8.0"
 
 [dependencies.rocket]
 version = "0.5.0-rc.1"

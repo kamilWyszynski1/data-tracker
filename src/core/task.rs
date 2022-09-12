@@ -4,11 +4,12 @@ use crate::connector::factory::getter_from_task_input;
 use crate::connector::kafka::{consume_topic, KafkaConfig};
 use crate::connector::psql::{monitor_changes, PSQLConfig};
 use crate::error::types::{Error, Result};
-use crate::lang::eval::EvalForest;
+use crate::lang::process::Process;
 use crate::models::task::TaskModel;
 use crate::server::task::{TaskCreateRequest, TaskKindRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::convert::TryFrom;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -19,7 +20,7 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub enum TaskInput {
     None,
     String {
@@ -70,21 +71,25 @@ pub enum InputData {
 }
 
 impl InputData {
-    pub fn from_str(value: &str) -> Result<Self> {
-        serde_json::from_str(value).map_err(|e| {
-            Error::new_internal(
-                String::from("InputData::from_str"),
-                String::from("failed to deserialize"),
-                e.to_string(),
-            )
-        })
-    }
-
-    pub fn to_str(&self) -> Result<String> {
+    pub fn try_to_string(&self) -> Result<String> {
         serde_json::to_string(self).map_err(|e| {
             Error::new_internal(
                 String::from("InputData::to_str"),
                 String::from("failed to serialize"),
+                e.to_string(),
+            )
+        })
+    }
+}
+
+impl TryFrom<&str> for InputData {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self> {
+        serde_json::from_str(value).map_err(|e| {
+            Error::new_internal(
+                String::from("InputData::from_str"),
+                String::from("failed to deserialize"),
                 e.to_string(),
             )
         })
@@ -115,7 +120,7 @@ pub struct TrackingTask {
     pub with_timestamp: bool, // whether to write timestamp.
     pub timestamp_position: TimestampPosition,
     pub invocations: Option<i32>, // number of invocations.
-    pub eval_forest: EvalForest,  // definition of handling data.
+    pub process: Process,         // definition of handling data.
     pub status: State,
     pub input: Option<TaskInput>,
 
@@ -161,47 +166,12 @@ impl TrackingTask {
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
-            eval_forest: EvalForest::default(),
+            process: Process::default(),
             status: State::Created,
             input: None,
             kind: None,
             kind_request,
         }
-    }
-
-    pub fn from_task_model(tm: &TaskModel) -> Result<Self> {
-        let id = Uuid::parse_str(&tm.uuid).map_err(|err| {
-            Error::new_internal(
-                String::from("from_task_model"),
-                String::from("failed to parse uuid"),
-                err.to_string(),
-            )
-        })?;
-
-        let input = tm.input.as_ref().map(|i| TaskInput::from_json(i).unwrap());
-        let kind_request = TaskKindRequest::from_json(&tm.kind)?;
-
-        Ok(TrackingTask {
-            id,
-            name: Some(tm.name.clone()),
-            description: Some(tm.description.clone()),
-            data_fn: input
-                .as_ref()
-                .and_then(|i| getter_from_task_input(i).map(Arc::new)),
-            spreadsheet_id: tm.spreadsheet_id.clone(),
-            starting_position: tm.position.clone(),
-            sheet: tm.sheet.clone(),
-            direction: tm.direction,
-            with_timestamp: true,
-            timestamp_position: tm.timestamp_position,
-            invocations: None,
-            eval_forest: EvalForest::from_string(&tm.eval_forest)?,
-            status: tm.status,
-            callbacks: None,
-            input,
-            kind: None,
-            kind_request,
-        })
     }
 
     /// Sets TaskKind for TrackingTask, create channels and spawns needed tokio::task for needed types.
@@ -321,9 +291,9 @@ impl TrackingTask {
         self
     }
 
-    /// sets eval_forest field.
-    pub fn with_eval_forest(mut self, eval_forest: EvalForest) -> TrackingTask {
-        self.eval_forest = eval_forest;
+    /// Sets process field.
+    pub fn with_process(mut self, process: Process) -> Self {
+        self.process = process;
         self
     }
 
@@ -383,7 +353,7 @@ impl TrackingTask {
             with_timestamp: false,
             timestamp_position: TimestampPosition::None,
             invocations: None,
-            eval_forest: EvalForest::from_definition(&tcr.definition),
+            process: tcr.process,
             data_fn: tcr
                 .input
                 .as_ref()
@@ -392,6 +362,48 @@ impl TrackingTask {
             input: tcr.input,
             kind: None,
             kind_request: tcr.kind_request,
+        })
+    }
+}
+
+impl TryFrom<TaskModel> for TrackingTask {
+    type Error = Error;
+
+    fn try_from(task_model: TaskModel) -> Result<Self> {
+        let id = Uuid::parse_str(&task_model.uuid).map_err(|err| {
+            Error::new_internal(
+                String::from("from_task_model"),
+                String::from("failed to parse uuid"),
+                err.to_string(),
+            )
+        })?;
+
+        let input = task_model
+            .input
+            .as_ref()
+            .map(|i| TaskInput::from_json(i).unwrap());
+        let kind_request = TaskKindRequest::from_json(&task_model.kind)?;
+
+        Ok(TrackingTask {
+            id,
+            name: Some(task_model.name),
+            description: Some(task_model.description),
+            data_fn: input
+                .as_ref()
+                .and_then(|i| getter_from_task_input(i).map(Arc::new)),
+            spreadsheet_id: task_model.spreadsheet_id,
+            starting_position: task_model.position,
+            sheet: task_model.sheet,
+            direction: task_model.direction,
+            with_timestamp: true,
+            timestamp_position: task_model.timestamp_position,
+            invocations: None,
+            process: Process::try_from(task_model.process)?,
+            status: task_model.status,
+            callbacks: None,
+            input,
+            kind: None,
+            kind_request,
         })
     }
 }

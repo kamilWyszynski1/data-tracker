@@ -1,4 +1,5 @@
 use crate::error::types::{Error, Result};
+use rocket::data::N;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
@@ -19,19 +20,19 @@ impl SubTree {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Definition {
-    // Name of a definition.
+    /// Name of a definition.
     pub name: Option<String>,
 
-    // Steps that are being performed in scope of one Definition.
+    /// Steps that are being performed in scope of one Definition.
     pub steps: Vec<String>,
 
-    // Collection of SubTrees that can be run from steps.
-    // Optionally, Subtrees can be marked to run implicitly.
+    /// Collection of SubTrees that can be run from steps.
+    /// Optionally, Subtrees can be marked to run implicitly.
     pub subtrees: Option<Vec<SubTree>>,
 
-    // Set of subtrees that will be run implicitly - without need of using 'RunSubtree' command.
-    // Subtrees will be run in a order of initialization.
-    // Implicit subtress will be deleted from 'SharedState' in order to prevent multiple runs.
+    /// Set of subtrees that will be run implicitly - without need of using 'RunSubtree' command.
+    /// Subtrees will be run in a order of initialization.
+    /// Implicit subtress will be deleted from 'SharedState' in order to prevent multiple runs.
     pub implicit_subtrees: Option<Vec<String>>,
 }
 

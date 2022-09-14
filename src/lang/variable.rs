@@ -80,26 +80,38 @@ impl Variable {
             Variable::Bool(b) => Node {
                 value: NodeEnum::Keyword(Keyword::Bool),
                 nodes: vec![Node {
-                    value: NodeEnum::Var(b.to_string()),
+                    value: NodeEnum::Var {
+                        value: b.to_string(),
+                        l_value: false,
+                    },
                     nodes: vec![],
                 }],
             },
             Variable::Int(i) => Node {
                 value: NodeEnum::Keyword(Keyword::Int),
                 nodes: vec![Node {
-                    value: NodeEnum::Var(i.to_string()),
+                    value: NodeEnum::Var {
+                        value: i.to_string(),
+                        l_value: false,
+                    },
                     nodes: vec![],
                 }],
             },
             Variable::Float(f) => Node {
                 value: NodeEnum::Keyword(Keyword::Float),
                 nodes: vec![Node {
-                    value: NodeEnum::Var(f.to_string()),
+                    value: NodeEnum::Var {
+                        value: f.to_string(),
+                        l_value: false,
+                    },
                     nodes: vec![],
                 }],
             },
             Variable::String(s) => Node {
-                value: NodeEnum::Var(s.clone()),
+                value: NodeEnum::Var {
+                    value: s.clone(),
+                    l_value: false,
+                },
                 nodes: vec![],
             },
             Variable::Vector(vec) => {

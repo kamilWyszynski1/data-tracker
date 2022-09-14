@@ -19,8 +19,8 @@ use std::{
 /// Enum for Node type.
 pub enum NodeEnum {
     None,
-    Keyword(Keyword), // Keyword is a supported function.
-    Var(String),      // Variable name or "default" evaluation of variable which is String.
+    Keyword(Keyword),                     // Keyword is a supported function.
+    Var { value: String, l_value: bool }, // Variable name or "default" evaluation of variable which is String.
 }
 
 impl Default for NodeEnum {
@@ -105,9 +105,9 @@ impl Node {
     }
 
     /// Creates new Node with NodeEnum::Var type.
-    pub fn new_var(var: String) -> Self {
+    pub fn new_var(value: String, l_value: bool) -> Self {
         Node {
-            value: NodeEnum::Var(var),
+            value: NodeEnum::Var { value, l_value },
             nodes: vec![],
         }
     }
@@ -136,9 +136,13 @@ impl Node {
     }
 
     fn change_special_function_placeholder(&mut self, replacement: Self) {
-        if self.value == NodeEnum::Var(String::from("X")) {
-            *self = replacement.clone()
+        match &self.value {
+            NodeEnum::Var { value, l_value: _ } if value == &String::from("X") => {
+                *self = replacement.clone()
+            }
+            _ => (),
         }
+
         for i in 0..self.nodes.len() {
             self.nodes[i].change_special_function_placeholder(replacement.clone())
         }
@@ -222,7 +226,16 @@ impl Node {
                     _ => panic!("should not be reached"),
                 }
             }
-            NodeEnum::Var(ref var) => Ok(Variable::String(var.clone())),
+            NodeEnum::Var { ref value, l_value } => {
+                // check if variable with given name exists.
+                if !l_value {
+                    if let Some(value) = state.variables.get(value) {
+                        return Ok(value.clone());
+                    }
+                }
+
+                Ok(Variable::String(value.clone()))
+            }
         }
     }
 }

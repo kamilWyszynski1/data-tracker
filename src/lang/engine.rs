@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_process2() {
-        env_logger::init();
+        env_logger::try_init();
 
         let path = std::env::current_dir()
             .unwrap()
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_process3() {
-        env_logger::init();
+        env_logger::try_init();
 
         let path = std::env::current_dir()
             .unwrap()

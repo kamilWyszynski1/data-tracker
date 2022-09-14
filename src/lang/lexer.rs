@@ -156,6 +156,12 @@ impl Keyword {
             })
             .map(|_| ())
     }
+
+    /// Determines if enum variant's first argument is l_value or not.
+    /// l_value won't be automatically converted into initialized variable with the same name.
+    fn contain_l_value(&self) -> bool {
+        matches!(self, Self::Define | Self::Get)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +171,13 @@ pub enum Token {
     RightBracket,
     Comma,
     Keyword(Keyword),
-    Var(String),
+
+    /// Contains string value of a parsed token and l_value indicator.
+    /// If something is l_value, it won't be treated as initialized variable.
+    Var {
+        value: String,
+        l_value: bool,
+    },
 }
 
 /// Takes care of creating Tokens from wanted declaration.
@@ -174,6 +186,10 @@ pub struct Lexer<'a> {
     pos: usize,
     current_char: char,
     done: bool,
+
+    /// Contains previously parsed token, handy for determining if something is l_value or not.
+    /// Check Keyword::contain_l_value method for more info.
+    previous: Option<Token>,
 }
 
 impl<'a> Lexer<'a> {
@@ -183,6 +199,7 @@ impl<'a> Lexer<'a> {
             pos: 0,
             current_char: text.chars().next().unwrap(),
             done: false,
+            previous: None,
         }
     }
 
@@ -228,6 +245,8 @@ impl<'a> Lexer<'a> {
         let mut apostrophe_found = false; // if so, we will have to find another end of whole string;
         let mut ending_apostrophe_missing = true;
 
+        // will be set to 'true' whenever we find '(' which indicates that next value is a l_value.
+
         while !self.done {
             if self.current_char == '\'' {
                 self.advance();
@@ -251,11 +270,22 @@ impl<'a> Lexer<'a> {
             panic!("string with start but without the end")
         }
 
+        let mut token = Token::Var {
+            value: word.clone(),
+            l_value: false,
+        };
         if let Some(f) = Keyword::from_string(&word) {
-            Token::Keyword(f)
-        } else {
-            Token::Var(word)
-        }
+            token = Token::Keyword(f)
+        } else if let Some(Token::Keyword(k)) = &self.previous {
+            if k.contain_l_value() || apostrophe_found {
+                token = Token::Var {
+                    value: word,
+                    l_value: true,
+                };
+            }
+        };
+        self.previous = Some(token.clone());
+        token
     }
 }
 
@@ -299,17 +329,17 @@ impl Parser {
         }
         while !self.done {
             self.advance();
-            match self.current_token {
+            match &self.current_token {
                 Token::RightBracket => {
                     break;
                 }
-                Token::Var(ref v) => pt.push(Node::new_var(v.clone())),
                 Token::Keyword(_) => {
                     if let Some(parsed) = self.parse() {
                         pt.push(parsed)
                     }
                 }
-                _ => {}
+                Token::Var { value, l_value } => pt.push(Node::new_var(value.clone(), *l_value)),
+                _ => (),
             }
         }
         if pt.value == NodeEnum::None {
@@ -334,7 +364,6 @@ mod tests {
             variable::Variable,
         },
     };
-    use rocket::data::N;
     use serde_json::Value;
     use std::collections::HashMap;
 
@@ -394,7 +423,10 @@ mod tests {
         let wanted: Vec<Token> = vec![
             Token::Keyword(Keyword::Object),
             Token::LeftBracket,
-            Token::Var(map_str.to_string()),
+            Token::Var {
+                value: map_str.to_string(),
+                l_value: true,
+            },
             Token::RightBracket,
         ];
         assert_eq!(tokens, wanted);
@@ -408,22 +440,37 @@ mod tests {
         let wanted: Vec<Token> = vec![
             Token::Keyword(Keyword::Define),
             Token::LeftBracket,
-            Token::Var(String::from("var")),
+            Token::Var {
+                value: String::from("var"),
+                l_value: true,
+            },
             Token::Comma,
             Token::Keyword(Keyword::Vec),
             Token::LeftBracket,
-            Token::Var(String::from("1")),
+            Token::Var {
+                value: String::from("1"),
+                l_value: false,
+            },
             Token::Comma,
             Token::Keyword(Keyword::Bool),
             Token::LeftBracket,
-            Token::Var(String::from("2")),
+            Token::Var {
+                value: String::from("2"),
+                l_value: false,
+            },
             Token::RightBracket,
             Token::Comma,
-            Token::Var(String::from("3")),
+            Token::Var {
+                value: String::from("3"),
+                l_value: false,
+            },
             Token::Comma,
             Token::Keyword(Keyword::Float),
             Token::LeftBracket,
-            Token::Var(String::from("4.0")),
+            Token::Var {
+                value: String::from("4.0"),
+                l_value: false,
+            },
             Token::RightBracket,
             Token::RightBracket,
             Token::RightBracket,
@@ -434,12 +481,13 @@ mod tests {
         let got = parser.parse().unwrap();
 
         let mut main = Node::new_keyword(Keyword::Define);
-        main.push(Node::new_var(String::from("var")));
+        main.push(Node::new_var(String::from("var"), true));
         let mut vec = Node::new_keyword(Keyword::Vec);
-        let v1 = Node::new_var(String::from("1"));
-        let v2 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("2")));
-        let v3 = Node::new_var(String::from("3"));
-        let v4 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("4.0")));
+        let v1 = Node::new_var(String::from("1"), false);
+        let v2 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("2"), false));
+        let v3 = Node::new_var(String::from("3"), false);
+        let v4 =
+            Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("4.0"), false));
         vec.push(v1);
         vec.push(v2);
         vec.push(v3);
@@ -457,11 +505,11 @@ mod tests {
         let got = parser.parse().unwrap();
 
         let main = Node::new_keyword(Keyword::Define)
-            .append(Node::new_var(String::from("var3")))
+            .append(Node::new_var(String::from("var3"), true))
             .append(
                 Node::new_keyword(Keyword::Extract)
-                    .append(Node::new_var(String::from("var")))
-                    .append(Node::new_var(String::from("use"))),
+                    .append(Node::new_var(String::from("var"), false))
+                    .append(Node::new_var(String::from("use"), false)),
             );
         assert_eq!(got, main);
     }
@@ -472,8 +520,8 @@ mod tests {
         let got = Parser::new(tokens).parse().unwrap();
 
         let r = Node::new_keyword(Keyword::Define)
-            .append(Node::new_var(String::from("var3")))
-            .append(Node::new_var(String::from("qwdqw")));
+            .append(Node::new_var(String::from("var3"), true))
+            .append(Node::new_var(String::from("qwdqw"), false));
 
         assert_eq!(got, r);
     }
@@ -481,7 +529,7 @@ mod tests {
     #[test]
     fn test_eval() {
         let var = String::from("var");
-        let n1 = Node::new_var(var.clone());
+        let n1 = Node::new_var(var.clone(), false);
 
         let mut state = SharedState {
             variables: HashMap::new(),
@@ -494,19 +542,21 @@ mod tests {
             Variable::String(var)
         );
 
-        let n1 = Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("true")));
+        let n1 =
+            Node::new_keyword(Keyword::Bool).append(Node::new_var(String::from("true"), false));
         assert_eq!(
             n1.start_evaluation(&mut state).unwrap(),
             Variable::Bool(true)
         );
 
-        let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
+        let n1 =
+            Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3"), false));
         assert_eq!(
             n1.start_evaluation(&mut state).unwrap(),
             Variable::Float(2.3)
         );
 
-        let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
+        let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123"), false));
         assert_eq!(n2.start_evaluation(&mut state).unwrap(), Variable::Int(123));
 
         let n3 = Node::new_keyword(Keyword::Add)
@@ -517,53 +567,80 @@ mod tests {
             Variable::Float(125.3)
         );
 
-        let n4 = Node::new_keyword(Keyword::Add)
-            .append(n2.clone())
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"))));
+        let n4 = Node::new_keyword(Keyword::Add).append(n2.clone()).append(
+            Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("200"), false)),
+        );
         assert_eq!(n4.start_evaluation(&mut state).unwrap(), Variable::Int(323));
 
-        let n5 = Node::new_keyword(Keyword::Sub)
-            .append(n2)
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("23"))));
+        let n5 = Node::new_keyword(Keyword::Sub).append(n2).append(
+            Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("23"), false)),
+        );
         assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(100));
 
         let n5 = Node::new_keyword(Keyword::Div)
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("20"))))
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
+            .append(
+                Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("20"), false)),
+            )
+            .append(
+                Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"), false)),
+            );
         assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(10));
 
         let n5 = Node::new_keyword(Keyword::Div)
-            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("20.0"))))
-            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+            .append(
+                Node::new_keyword(Keyword::Float)
+                    .append(Node::new_var(String::from("20.0"), false)),
+            )
+            .append(
+                Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"), false)),
+            );
         assert_eq!(
             n5.start_evaluation(&mut state).unwrap(),
             Variable::Float(8.)
         );
 
         let n5 = Node::new_keyword(Keyword::Div)
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
+            .append(
+                Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"), false)),
+            )
+            .append(
+                Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"), false)),
+            );
         assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(-10));
 
         let n5 = Node::new_keyword(Keyword::Div)
-            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
-            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+            .append(
+                Node::new_keyword(Keyword::Float)
+                    .append(Node::new_var(String::from("-20.0"), false)),
+            )
+            .append(
+                Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"), false)),
+            );
         assert_eq!(
             n5.start_evaluation(&mut state).unwrap(),
             Variable::Float(-8.)
         );
 
         let n5 = Node::new_keyword(Keyword::Mult)
-            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("-20.0"))))
-            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+            .append(
+                Node::new_keyword(Keyword::Float)
+                    .append(Node::new_var(String::from("-20.0"), false)),
+            )
+            .append(
+                Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"), false)),
+            );
         assert_eq!(
             n5.start_evaluation(&mut state).unwrap(),
             Variable::Float(-50.)
         );
 
         let n5 = Node::new_keyword(Keyword::Mult)
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"))))
-            .append(Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"))));
+            .append(
+                Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("-20"), false)),
+            )
+            .append(
+                Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("2"), false)),
+            );
         assert_eq!(n5.start_evaluation(&mut state).unwrap(), Variable::Int(-40));
     }
 
@@ -576,13 +653,14 @@ mod tests {
             eval_metadata: EvalMetadata::default(),
         };
 
-        let n1 = Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3")));
+        let n1 =
+            Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3"), false));
 
-        let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123")));
+        let n2 = Node::new_keyword(Keyword::Int).append(Node::new_var(String::from("123"), false));
         let n3 = Node::new_keyword(Keyword::Add).append(n1).append(n2);
-        let n4 = Node::new_keyword(Keyword::Mult)
-            .append(n3)
-            .append(Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"))));
+        let n4 = Node::new_keyword(Keyword::Mult).append(n3).append(
+            Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.5"), false)),
+        );
         assert_eq!(
             n4.start_evaluation(&mut state).unwrap(),
             Variable::Float(313.25)
@@ -1346,5 +1424,14 @@ mod tests {
             String::from("OUT"),
             Variable::Vector(vec![Variable::Int(2)]),
         );
+    }
+
+    #[test]
+    fn variable_as_default_test() {
+        let def = Definition::new(vec![
+            "DEFINE(OUT, VEC(INT(1), INT(2), INT(3)))",
+            "DEFINE(OUT, EXTRACT(OUT, 0))",
+        ]);
+        test(def, String::from("OUT"), Variable::Int(1));
     }
 }

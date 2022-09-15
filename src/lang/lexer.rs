@@ -7,17 +7,23 @@ use serde::{Deserialize, Serialize};
 /// All supported keyword that can be used in steps declarations.
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub enum Keyword {
-    None,   // default value, not supported by language.
-    Define, // defines new variable: DEFINE(var, 1).
-    Get,    // returns defined variable: VAR(var).
+    None,
+    /// default value, not supported by language.
+    Define,
+    /// defines new variable: DEFINE(var, 1).
+    Get,
+    /// returns defined variable: VAR(var).
     Extract,
-    // appends data to given variable.
-    // supported variables to be appended: String, Vec, Object.
+    /// appends data to given variable.
+    /// supported variables to be appended: String, Vec, Object.
     Append,
 
-    Json,   // returns Variable::Json: JSON("{}").
-    Vec,    // returns Variable::Vec: VEC(1,2,3,4).
-    Object, // returns Variable::Object: Object(a, 1, b, INT(3), c, BOOL(true))
+    Json,
+    /// returns Variable::Json: JSON("{}").
+    Vec,
+    /// returns Variable::Vec: VEC(1,2,3,4).
+    Object,
+    /// returns Variable::Object: Object(a, 1, b, INT(3), c, BOOL(true))
     Bool,
     Int,
     Float,
@@ -27,27 +33,46 @@ pub enum Keyword {
     Div,
     Mult,
 
-    HTTP, // performs http request, has to return Variable::Json.
-    Log,  // logs given Variable.
+    HTTP,
+    /// performs http request, has to return Variable::Json.
+    Log,
+    /// logs given Variable.
+    RunSubtree,
+    /// takes 1 argument, subtree name: RunSubtree(subtree_name).
 
-    RunSubtree, // takes 1 argument, subtree name: RunSubtree(subtree_name).
-
-    // Takes no arguments, breaks from RunSubtree.
-    // If RunSubtree are nested it'll break to root point.
+    /// Takes no arguments, breaks from RunSubtree.
+    /// If RunSubtree are nested it'll break to root point.
     Break,
-    // conditional run: IF(BOOL(true), RunSubtree(subtree_name)).
+    /// conditional run: IF(BOOL(true), RunSubtree(subtree_name)).
     If,
-    // Returns true if two Variable are equal.
-    // Can be chained like that: Eq(Eq(INT(1), INT(1)), Eq(FLOAT(2.5), FLOAT(2.5))).
+    /// Returns true if two Variable are equal.
+    /// Can be chained like that: Eq(Eq(INT(1), INT(1)), Eq(FLOAT(2.5), FLOAT(2.5))).
     Eq,
     Neq,
 
-    Map,        // can be used for vector/object values mapping: MAP(VEC(1,2,3), ADD(x, INT(4)))
-    MapInPlace, // works same as Map but do not return variable, modifies given one.
-    Filter,     // can be used for vector/object values filtering: FILTER(VEC(1,2,3), EQ(X, 2)))
+    Map,
+    /// Can be used for vector/object values mapping: MAP(VEC(1,2,3), ADD(x, INT(4)))
+    MapInPlace,
+    /// Works same as Map but do not return variable, modifies given one.
+    Filter,
+    /// Can be used for vector/object values filtering: FILTER(VEC(1,2,3), EQ(X, 2)))
 
-    // takes 1 argument - alias to mounted resource, reads its content as a string.
+    /// Takes 1 argument - alias to mounted resource, reads its content as a string.
     ReadMountedToString,
+
+    /// Starts transactions. Every modifications on data after Begin will be inside transcations
+    /// which means that it won't be applied to final variable state till Commit/Rollback is called.
+    ///
+    /// Only one transaction can be started at a time.
+    Begin,
+    /// Applies transaction changes to real state.
+    ///
+    /// Fails if no transaction was started.
+    Commit,
+    /// Discards transaction changes.
+    ///
+    /// Fails if no transaction was started.
+    Rollback,
 }
 
 impl Keyword {
@@ -78,6 +103,9 @@ impl Keyword {
             "mapinplace" => Self::MapInPlace,
             "filter" => Self::Filter,
             "readmountedtostring" => Self::ReadMountedToString,
+            "begin" => Self::Begin,
+            "commit" => Self::Commit,
+            "rollback" => Self::Rollback,
             _ => Self::None,
         };
         if s == Self::None {
@@ -89,7 +117,11 @@ impl Keyword {
     /// Returns error if there's invalid number of arguments for given Keyword.
     pub fn check_arguments_count(&self, nodes: &[Variable]) -> Result<()> {
         let wanted = match self {
-            Keyword::None | Keyword::Break => 0,
+            Keyword::None
+            | Keyword::Break
+            | Keyword::Begin
+            | Keyword::Commit
+            | Keyword::Rollback => 0,
             Keyword::Get
             | Keyword::Json
             | Keyword::Object
@@ -376,12 +408,7 @@ mod tests {
             variables.insert(String::from("OUT"), variable);
         }
 
-        let mut shared_state = SharedState {
-            variables,
-            subtress: eval_forest.subtrees.clone(),
-            mounted: HashMap::new(),
-            eval_metadata: EvalMetadata::default(),
-        };
+        let mut shared_state = SharedState::new(variables, eval_forest.subtrees.clone());
 
         for root in &eval_forest.roots {
             root.start_evaluation(&mut shared_state)?;
@@ -531,12 +558,7 @@ mod tests {
         let var = String::from("var");
         let n1 = Node::new_var(var.clone(), false);
 
-        let mut state = SharedState {
-            variables: HashMap::new(),
-            subtress: HashMap::new(),
-            mounted: HashMap::new(),
-            eval_metadata: EvalMetadata::default(),
-        };
+        let mut state = SharedState::default();
         assert_eq!(
             n1.start_evaluation(&mut state).unwrap(),
             Variable::String(var)
@@ -646,12 +668,7 @@ mod tests {
 
     #[test]
     fn test_eval_complex() {
-        let mut state = SharedState {
-            variables: HashMap::new(),
-            subtress: HashMap::new(),
-            mounted: HashMap::new(),
-            eval_metadata: EvalMetadata::default(),
-        };
+        let mut state = SharedState::default();
 
         let n1 =
             Node::new_keyword(Keyword::Float).append(Node::new_var(String::from("2.3"), false));
@@ -669,12 +686,7 @@ mod tests {
 
     #[test]
     fn test_parse_eval() {
-        let mut state = SharedState {
-            variables: HashMap::new(),
-            subtress: HashMap::new(),
-            mounted: HashMap::new(),
-            eval_metadata: EvalMetadata::default(),
-        };
+        let mut state = SharedState::default();
 
         let mut lexer = Lexer::new("VEC(1,BOOL(true),3,FLOAT(4.0))");
         let tokens = lexer.make_tokens();
@@ -703,12 +715,7 @@ mod tests {
     }
     /// Runs single test scenario.
     fn test(def: Definition, var_name: String, value: Variable) {
-        let mut state = SharedState {
-            variables: HashMap::new(),
-            subtress: HashMap::new(),
-            mounted: HashMap::new(),
-            eval_metadata: EvalMetadata::default(),
-        };
+        let mut state = SharedState::default();
 
         fire_for_test(def, &mut state).unwrap();
         assert_eq!(*state.variables.get(&var_name).unwrap(), value);
@@ -1433,5 +1440,55 @@ mod tests {
             "DEFINE(OUT, EXTRACT(OUT, 0))",
         ]);
         test(def, String::from("OUT"), Variable::Int(1));
+    }
+
+    #[test]
+    fn test_transactions() {
+        let def = Definition::new(vec![
+            "DEFINE(OUT, INT(1))",
+            "BEGIN()",
+            "DEFINE(OUT2, INT(2))",
+            "ROLLBACK()",
+            "BEGIN()",
+            "DEFINE(OUT2, INT(3))",
+            "COMMIT()",
+        ]);
+
+        let mut state = SharedState::default();
+
+        fire_for_test(def, &mut state).unwrap();
+
+        assert_eq!(state.variables.get("OUT").unwrap(), &Variable::Int(1));
+        assert_eq!(state.variables.get("OUT2").unwrap(), &Variable::Int(3));
+
+        let def = Definition::new(vec!["BEGIN()", "BEGIN()"]);
+
+        assert_eq!(
+            fire_for_test(def, &mut SharedState::default()),
+            Err(Error::new_eval_internal(
+                "begin",
+                "transaction already started"
+            ))
+        );
+
+        let def = Definition::new(vec!["COMMIT()"]);
+
+        assert_eq!(
+            fire_for_test(def, &mut SharedState::default()),
+            Err(Error::new_eval_internal(
+                "commit",
+                "transaction wasn't started"
+            ))
+        );
+
+        let def = Definition::new(vec!["ROLLBACK()"]);
+
+        assert_eq!(
+            fire_for_test(def, &mut SharedState::default()),
+            Err(Error::new_eval_internal(
+                "rollback",
+                "transaction wasn't started"
+            ))
+        );
     }
 }

@@ -2,7 +2,7 @@ use super::lexer::Keyword;
 use super::variable::Variable;
 use crate::error::types::{Error, Result};
 use crate::lang::variable::value_object_to_variable_object;
-use anyhow::Context;
+use anyhow::{bail, Context};
 use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -59,16 +59,46 @@ impl Stack {
 
 #[derive(Default)]
 pub struct SharedState {
-    // holds variables state.
+    /// Holds variables state.
     pub variables: HashMap<String, Variable>,
 
-    // holds parsed subtrees.
+    /// Holds parsed subtrees.
     pub subtress: HashMap<String, Vec<Node>>,
 
-    // holds created readers for wanted mounted options.
+    /// Holds created readers for wanted mounted options.
     pub mounted: HashMap<String, Rc<RefCell<dyn Read>>>,
 
     pub eval_metadata: EvalMetadata,
+
+    /// Holds variables during lifetime of started transaction.
+    ///
+    /// After transaction commit this variables will overwrite `variables`.
+    /// After transaction rollback this variables will be discarded.
+    transactions_variables: Option<HashMap<String, Variable>>,
+}
+
+impl SharedState {
+    pub fn new(variables: HashMap<String, Variable>, subtress: HashMap<String, Vec<Node>>) -> Self {
+        Self {
+            variables,
+            subtress,
+            ..Default::default()
+        }
+    }
+
+    pub fn new_with_mounted(
+        variables: HashMap<String, Variable>,
+        subtress: HashMap<String, Vec<Node>>,
+        mounted: HashMap<String, Rc<RefCell<dyn Read>>>,
+    ) -> Self {
+        Self {
+            variables,
+            subtress,
+            mounted,
+            eval_metadata: EvalMetadata::default(),
+            transactions_variables: None,
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -223,6 +253,9 @@ impl Node {
                     }
                     Keyword::ReadMountedToString => read_mounted_to_string(&nodes, state),
                     Keyword::Append => append(&nodes, state),
+                    Keyword::Begin => begin(state),
+                    Keyword::Commit => commit(state),
+                    Keyword::Rollback => rollback(state),
                     _ => panic!("should not be reached"),
                 }
             }
@@ -675,6 +708,49 @@ fn append(nodes: &[Variable], state: &mut SharedState) -> Result<Variable> {
     }
 
     Ok(Variable::None)
+}
+
+/// Checks if transaction can be started, if so starts one.
+fn begin(state: &mut SharedState) -> Result<Variable> {
+    if let Some(_tx_variables) = &state.transactions_variables {
+        return Err(Error::new_eval_internal(
+            "begin",
+            "transaction already started",
+        ));
+    }
+
+    state.transactions_variables = Some(state.variables.clone());
+
+    Ok(Variable::None)
+}
+
+/// Commits current transaction.
+fn commit(state: &mut SharedState) -> Result<Variable> {
+    if let Some(_tx_variables) = &state.transactions_variables {
+        state.transactions_variables = None;
+
+        return Ok(Variable::None);
+    }
+
+    Err(Error::new_eval_internal(
+        "commit",
+        "transaction wasn't started",
+    ))
+}
+
+/// Commits current transaction.
+fn rollback(state: &mut SharedState) -> Result<Variable> {
+    if let Some(tx_variables) = &state.transactions_variables {
+        state.variables = tx_variables.clone();
+        state.transactions_variables = None;
+
+        return Ok(Variable::None);
+    }
+
+    Err(Error::new_eval_internal(
+        "rollback",
+        "transaction wasn't started",
+    ))
 }
 
 /// Parses single Variable to given type.

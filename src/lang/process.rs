@@ -1,5 +1,4 @@
 use crate::error::types::{Error, Result};
-use rocket::data::N;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 

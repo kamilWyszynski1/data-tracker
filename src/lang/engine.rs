@@ -69,12 +69,11 @@ impl Engine {
 
     /// Takes set of eval forest and runs them one by one.
     pub fn fire(&mut self) -> Result<()> {
-        let mut shared_state = SharedState {
-            variables: self.variables.clone(),
-            subtress: HashMap::default(),
-            mounted: self.mounted.clone(),
-            eval_metadata: EvalMetadata::default(),
-        };
+        let mut shared_state = SharedState::new_with_mounted(
+            self.variables.clone(),
+            HashMap::new(),
+            self.mounted.clone(),
+        );
 
         for ef in self.eval_forests.clone() {
             for root in ef.clone() {
